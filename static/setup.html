@@ -174,6 +174,10 @@ label.check input { width: auto; }
           <input id="port" name="port" type="number" min="1024" max="65535" placeholder="8790">
           <div class="hint" data-i18n="portHint">Смена порта применится после перезапуска</div>
         </div>
+        <div class="field full">
+          <label class="check"><input type="checkbox" id="devmode"> <span data-i18n="devMode">На принтере включён Developer Mode</span></label>
+          <div class="hint" data-i18n="devModeHint">Открывает на пульте температуры, вентиляторы и сушку AMS. Без Developer Mode свежие прошивки Bambu отклоняют эти команды. Developer Mode включается на принтере: Настройки → Сеть → LAN Only и Developer Mode; облако Bambu и Handy при этом перестают работать.</div>
+        </div>
         <div class="field">
           <label for="pw" data-i18n="pw">Пароль на пульт</label>
           <input id="pw" type="password" autocomplete="new-password" placeholder="••••">
@@ -230,6 +234,8 @@ const I18N = {
     e_code_required: "Введите Access Code: для другого принтера сохранённый не используется", e_port: "Порт должен быть от 1024 до 65535", e_net: "Сервер дашборда недоступен",
     f_reach: "Принтер не отвечает по этому адресу. Проверьте IP и что он в той же сети.", f_auth: "Принтер найден, но Access Code не подошёл.", f_status: "Подключились, но статус не пришёл. Проверьте серийный номер.",
     state: "состояние",
+    devMode: "На принтере включён Developer Mode",
+    devModeHint: "Открывает на пульте температуры, вентиляторы и сушку AMS. Без Developer Mode свежие прошивки Bambu отклоняют эти команды. Developer Mode включается на принтере: Настройки → Сеть → LAN Only и Developer Mode; облако Bambu и Handy при этом перестают работать.",
     sMine: "Мои принтеры", addPrinter: "+ Добавить принтер", edit: "Изменить", del: "Удалить", newPrinter: "новый принтер",
     delConfirm: "Удалить принтер «{name}» из дашборда? История печатей останется.", added: "уже добавлен", e_duplicate: "Этот принтер уже добавлен",
     sCost: "Стоимость печати", sCostLead: "Нужно для расчёта стоимости каждой печати и статистики. Пустое поле — не учитывать.",
@@ -262,6 +268,8 @@ const I18N = {
     e_code_required: "Enter the Access Code: the stored one is never reused for a different printer", e_port: "Port must be between 1024 and 65535", e_net: "Dashboard server unreachable",
     f_reach: "No printer answers at this address. Check the IP and that it is on the same network.", f_auth: "Printer found, but the Access Code was rejected.", f_status: "Connected, but no status arrived. Check the serial number.",
     state: "state",
+    devMode: "Developer Mode is on at the printer",
+    devModeHint: "Shows temperature, fan and AMS drying controls on the console. Recent Bambu firmware rejects these commands without Developer Mode. Turn it on at the printer: Settings → Network → LAN Only and Developer Mode; Bambu cloud and Handy stop working then.",
     sMine: "My printers", addPrinter: "+ Add printer", edit: "Edit", del: "Remove", newPrinter: "new printer",
     delConfirm: "Remove printer \"{name}\" from the dashboard? Its print history stays.", added: "already added", e_duplicate: "This printer is already added",
     sCost: "Print cost", sCostLead: "Used to price each print and for statistics. Leave a field empty to ignore it.",
@@ -335,7 +343,7 @@ $("scan").onclick = async () => {
 };
 
 function formData() {
-  return { p: currentP, host: $("host").value.trim(), access_code: $("code").value.trim(), serial: $("serial").value.trim().toUpperCase(),
+  return { p: currentP, dev_mode: $("devmode").checked, host: $("host").value.trim(), access_code: $("code").value.trim(), serial: $("serial").value.trim().toUpperCase(),
            name: $("name").value.trim(), port: $("port").value.trim(),
            new_password: $("pw").value, remove_password: $("pw-remove").checked, costs: costsData() };
 }
@@ -410,6 +418,7 @@ function selectPrinter(id, quiet) {
   const c = curConf();
   $("host").value = c ? c.host || "" : ""; $("serial").value = c ? c.serial || "" : "";
   $("name").value = c && c.name !== "Bambu" ? c.name : ""; $("code").value = "";
+  $("devmode").checked = !!(c && c.dev_mode);
   $("steps").hidden = true; showMsg("", "");
   applyLang();
   if (!quiet) $("form").scrollIntoView({ behavior: "smooth", block: "start" });

@@ -1210,6 +1210,9 @@ if (new URLSearchParams(location.search).get("kiosk") === "1") setKiosk(true, fa
 /* ---------- fine control: temperatures, fans, AMS drying (may need Developer Mode) ---------- */
 const DRY_DEFAULT = { PLA: 50, PETG: 65, ABS: 80, ASA: 80, TPU: 65, PA: 80, PC: 80, PVA: 50 };
 function renderTune(s) {
+  // Without Developer Mode (a per-printer setting) these controls and their hints stay hidden.
+  $("tune").hidden = !s.dev_mode; $("dry").hidden = !s.dev_mode || !(s.ams || []).length;
+  if (!s.dev_mode) { $("lock-tune").hidden = true; $("lock-dry").hidden = true; return; }
   const lockedT = (s.locked || []).includes("gcode_line"), lockedD = (s.locked || []).includes("ams_filament_drying");
   document.querySelectorAll("#tune input, #tune button:not(.unlock)").forEach((el) => (el.disabled = lockedT));
   document.querySelectorAll("#dry select, #dry input, #dry button").forEach((el) => (el.disabled = lockedD));
@@ -1229,7 +1232,6 @@ function renderTune(s) {
   const sel = $("dry-unit"), keep = sel.value;
   const opts = (s.ams || []).map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join("");
   if (sel.dataset.k !== opts) { sel.innerHTML = opts; sel.dataset.k = opts; if (keep) sel.value = keep; }
-  $("dry").hidden = !(s.ams || []).length;
   const u = (s.ams || []).find((x) => String(x.id) === sel.value);
   $("dry-status").textContent = u && u.dry_min ? `${t("dryLeft")} ${fmtDur(u.dry_min).replace(/<[^>]+>/g, "")}` : "";
 }

@@ -38,7 +38,7 @@ from history import DEFAULT_COSTS, History, job_costs
 BASE = os.path.dirname(os.path.abspath(__file__))
 CFG_PATH = os.path.join(BASE, "config.json")
 DEFAULTS = {"port": 8790, "password_hash": "", "session_secret": "", "printers": []}
-PRINTER_KEYS = ("host", "serial", "access_code", "name", "locked_cmds")
+PRINTER_KEYS = ("host", "serial", "access_code", "name", "locked_cmds", "dev_mode")
 ACTIVE = ("PREPARE", "RUNNING", "PAUSE")
 
 
@@ -56,6 +56,7 @@ def load_cfg():
         c.pop(k, None)
     for p in c["printers"]:
         p.setdefault("locked_cmds", [])
+        p.setdefault("dev_mode", False)
         p["name"] = p.get("name") or "Bambu"
     return c
 
@@ -602,7 +603,7 @@ class Printer:
             "nozzle": {"type": p.get("nozzle_type"), "diameter": p.get("nozzle_diameter")},
             "ai": {"spaghetti": xc.get("spaghetti_detector"), "first_layer": xc.get("first_layer_inspector"),
                    "halt": xc.get("print_halt"), "sensitivity": xc.get("halt_print_sensitivity")},
-            "locked": self.conf["locked_cmds"],
+            "locked": self.conf["locked_cmds"], "dev_mode": bool(self.conf.get("dev_mode")),
             "errors": {"print": f"{perr:08X}" if perr else None, "print_text": error_text(f"{perr:08X}") if perr else None,
                        "hms": [{"code": c, "text": hms_text(c)} for c in hms]},
             "job": {"started_at": job.get("started_at"), "thumb": bool(job.get("thumb")),
@@ -1288,7 +1289,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {
                 "port": cfg["port"], "running_port": PORT, "has_password": auth_required(), "costs": cfg["costs"],
                 "printers": [{"id": p["id"], "name": p["name"], "host": p.get("host"), "serial": p.get("serial"),
-                              "has_code": bool(p.get("access_code")), "configured": printers[p["id"]].configured()}
+                              "has_code": bool(p.get("access_code")), "dev_mode": bool(p.get("dev_mode")),
+                              "configured": printers[p["id"]].configured()}
                              for p in cfg["printers"] if p["id"] in printers]})
         if path == "/api/discover":
             return self._json(200, {"printers": discover(), "subnets": [str(n) for n in local_subnets()]})
@@ -1418,7 +1420,7 @@ class Handler(BaseHTTPRequestHandler):
             if any(p.get("serial") == serial and p is not conf for p in cfg["printers"]):
                 return self._json(400, {"ok": False, "error": "duplicate"})
             name = (str(a.get("name") or "").strip() or "Bambu")[:40]
-            fields = {"host": host, "serial": serial, "access_code": code, "name": name}
+            fields = {"host": host, "serial": serial, "access_code": code, "name": name, "dev_mode": bool(a.get("dev_mode"))}
             with cfg_lock:
                 if conf is None:  # a new printer
                     used = {p["id"] for p in cfg["printers"]}
@@ -1427,7 +1429,7 @@ class Handler(BaseHTTPRequestHandler):
                     cfg["printers"].append(conf)
                 else:
                     reconnect = any(fields[k] != conf.get(k) for k in ("host", "serial", "access_code"))
-                    if reconnect:
+                    if reconnect or (fields["dev_mode"] and not conf.get("dev_mode")):
                         conf["locked_cmds"] = []  # a different printer may well accept them
                     conf.update(fields)
             result.update(serial=serial, p=conf["id"])
@@ -1492,6 +1494,10 @@ class Handler(BaseHTTPRequestHandler):
         elif act in COMMANDS:
             pr.send(COMMANDS[act](a))
         else:
+            # Temperature/fan/drying need Developer Mode on the printer; without it every attempt
+            # is rejected and leaves an HMS notice on the printer screen, so don't even try.
+            if not pr.conf.get("dev_mode"):
+                return self._json(409, {"ok": False, "error": "dev_mode_off"})
             payload, err = extra_command(act, a)
             mqtt_cmd = (payload or {}).get("print", {}).get("command")
             if mqtt_cmd in pr.conf["locked_cmds"]:
