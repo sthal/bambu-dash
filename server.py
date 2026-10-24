@@ -223,6 +223,10 @@ def _fan(v):
     return None if v is None else round(v / 15 * 100)
 
 
+def _real_uuid(u):
+    return bool(u) and set(str(u)) != {"0"}
+
+
 def _hms_code(h):
     a, c = int(h.get("attr", 0)), int(h.get("code", 0))
     return f"{a >> 16:04X}_{a & 0xFFFF:04X}_{c >> 16:04X}_{c & 0xFFFF:04X}"
@@ -589,8 +593,9 @@ class Printer:
                 tid = int(t.get("id", 0))
                 empty = not t.get("tray_type")
                 col = (t.get("tray_color") or "00000000")[:6]
+                left = self.spool_left(t)[0] if not empty and _real_uuid(t.get("tray_uuid")) else None
                 trays.append({
-                    "slot": tid + 1, "empty": empty, "type": t.get("tray_type") or "",
+                    "left_g": left, "slot": tid + 1, "empty": empty, "type": t.get("tray_type") or "",
                     "brand": t.get("tray_sub_brands") or "", "color": "#" + col,
                     "remain": t.get("remain") if isinstance(t.get("remain"), int) else -1,
                     "active": loaded == (uid, tid) and not empty,
@@ -694,8 +699,13 @@ class Printer:
         jid, meta = job.get("db_id"), job.get("meta")
         if not jid or not meta or job.get("meta_saved") == jid:
             return
+        filaments = [dict(f) for f in meta.get("filaments") or []]
+        for f in filaments:  # which physical spool (RFID uuid) feeds this filament, for the spool ledger
+            t = self._tray_for(f)
+            if t and _real_uuid(t.get("tray_uuid")):
+                f["tray_uuid"] = t["tray_uuid"]
         fields = {"prediction_s": meta.get("prediction"), "weight_g": meta.get("weight"),
-                  "filaments": meta.get("filaments") or [], "layers": int(_num(self.raw.get("total_layer_num"), 0) or 0)}
+                  "filaments": filaments, "layers": int(_num(self.raw.get("total_layer_num"), 0) or 0)}
         if job.get("thumb"):
             fields["thumb"] = job["thumb"]
         if job.get("toolpath"):
@@ -749,30 +759,67 @@ class Printer:
         """Will the loaded spools last? Per filament of the current print: grams left vs grams still needed."""
         if not meta or not meta.get("filaments"):
             return []
-        trays = {}
-        for u in self.raw.get("ams", {}).get("ams") or []:
-            for t in u.get("tray") or []:
-                trays[(int(u.get("id", 0)), int(t.get("id", 0)))] = t
-        mapping = self.raw.get("mapping") or []
         done = (_num(self.raw.get("mc_percent"), 0) or 0) / 100
         out = []
         for f in meta["filaments"]:
-            idx = (f.get("id") or 0) - 1
-            v = mapping[idx] if 0 <= idx < len(mapping) else None
-            if v is None or v == 0xFFFF:
-                continue
-            slot = (v >> 8, v & 0xFF) if v >= 256 else (v // 4, v % 4)  # H2: (ams<<8)|slot; older: ams*4+slot
-            t = trays.get(slot)
+            slot = self._slot_for(f)
+            t = self._tray(slot) if slot else None
             if not t:
                 continue
             need = round((f.get("g") or 0) * (1 - done), 1)
-            remain = t.get("remain") if isinstance(t.get("remain"), int) else -1
-            spool_g = _num(t.get("tray_weight"), 0) or 1000  # Bambu spools are 1 kg unless the RFID says otherwise
-            left = round(spool_g * remain / 100, 0) if remain >= 0 else None
+            left, printer_left = self.spool_left(t)
             status = "unknown" if left is None else "ok" if left >= need * 1.1 else "short"
             out.append({"type": f.get("type"), "color": f.get("color"), "need_g": need, "left_g": left,
-                        "status": status, "ams": "AMS HT" if slot[0] >= 128 else f"AMS {slot[0] + 1}", "slot": slot[1] + 1})
+                        "printer_g": printer_left, "status": status,
+                        "ams": "AMS HT" if slot[0] >= 128 else f"AMS {slot[0] + 1}", "slot": slot[1] + 1})
         return out
+
+    # ----- spools: the AMS estimate drifts (it resets on re-insertion, drying...), so keep our own ledger -----
+
+    def _tray(self, slot):
+        for u in self.raw.get("ams", {}).get("ams") or []:
+            if int(u.get("id", 0)) == slot[0]:
+                for t in u.get("tray") or []:
+                    if int(t.get("id", 0)) == slot[1]:
+                        return t
+        return None
+
+    def _slot_for(self, f):
+        mapping = self.raw.get("mapping") or []
+        idx = (f.get("id") or 0) - 1
+        v = mapping[idx] if 0 <= idx < len(mapping) else None
+        if v is None or v == 0xFFFF:
+            return None
+        return (v >> 8, v & 0xFF) if v >= 256 else (v // 4, v % 4)  # H2: (ams<<8)|slot; older: ams*4+slot
+
+    def _tray_for(self, f):
+        slot = self._slot_for(f)
+        return self._tray(slot) if slot else None
+
+    def note_spools(self):
+        """First sight of an RFID spool: remember how much the AMS says it holds."""
+        for u in self.raw.get("ams", {}).get("ams") or []:
+            for t in u.get("tray") or []:
+                uuid, remain = t.get("tray_uuid"), t.get("remain")
+                if _real_uuid(uuid) and isinstance(remain, int) and remain >= 0 and not hist_db.spool(uuid):
+                    grams = (_num(t.get("tray_weight"), 0) or 1000) * remain / 100
+                    hist_db.add_spool(uuid, t.get("tray_type"), (t.get("tray_color") or "")[:6], time.time(), grams)
+
+    def spool_left(self, t):
+        """(grams left, the printer's own estimate): the lower of our ledger and the AMS estimate."""
+        remain = t.get("remain") if isinstance(t.get("remain"), int) else -1
+        printer_left = round((_num(t.get("tray_weight"), 0) or 1000) * remain / 100) if remain >= 0 else None
+        uuid = t.get("tray_uuid")
+        sp = hist_db.spool(uuid) if _real_uuid(uuid) else None
+        if not sp:
+            return printer_left, printer_left
+        used = hist_db.used_from_spool(uuid, sp["first_seen"], exclude_job=self.job.get("db_id"))
+        meta, done = self.job.get("meta") or {}, (_num(self.raw.get("mc_percent"), 0) or 0) / 100
+        if self.raw.get("gcode_state") in ACTIVE:  # what the current print has already taken from this spool
+            used += sum((f.get("g") or 0) * done for f in meta.get("filaments") or []
+                        if (self._tray_for(f) or {}).get("tray_uuid") == uuid)
+        ledger = round(max(0.0, sp["start_g"] - used))
+        return (min(ledger, printer_left) if printer_left is not None else ledger), printer_left
 
     def track_transitions(self):
         """Called under the printer lock after each MQTT message: emits timeline events."""
@@ -916,6 +963,7 @@ class Printer:
             time.sleep(5)
             n += 1
             with self.lock:
+                self.note_spools()
                 v = self.build_view()
             t = v["temps"]
             self.hist.append([round(time.time()), t["nozzle"]["cur"], t["bed"]["cur"], t["chamber"]["cur"], v["pct"]])

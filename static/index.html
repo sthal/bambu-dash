@@ -763,7 +763,7 @@ const I18N = {
     notifyOn: "Уведомления включены", notifyDenied: "Браузер запретил уведомления", soundOn: "Звук включён", soundOff: "Звук выключен",
     loginTitle: "Пульт защищён паролем", loginText: "Смотреть можно без пароля, а управлять принтером только после входа.",
     login: "Войти", logout: "Выйти", locked: "Войти для управления", cancel: "Отмена", wrongPw: "Неверный пароль", tooMany: "Слишком много попыток, подождите 5 минут",
-    hHistory: "История", jobsShort: "печ.",
+    printerSays: "принтер считает", hHistory: "История", jobsShort: "печ.",
     costFilShort: "пластик", costElShort: "электр.", costTotal: "итого", v3d: "3D", vPhoto: "Фото", vPlate: "Превью", download: "Скачать",
     filaments: "Пластик", rpStart: "Начало", rpEnd: "Конец", rpDur: "Длительность", rpLayers: "Слоёв", rpPlastic: "Пластик", rpEnergy: "Электричество",
     rpCostFil: "Пластик", rpCostEl: "Электричество", rpTotal: "Итого", rpTemps: "Температуры", rpProgress: "Прогресс", noSamples: "Нет замеров: печать началась до того, как дашборд начал их записывать.",
@@ -806,7 +806,7 @@ const I18N = {
     notifyOn: "Notifications on", notifyDenied: "The browser blocked notifications", soundOn: "Sound on", soundOff: "Sound off",
     loginTitle: "Console is password-protected", loginText: "Anyone can watch; controlling the printer needs a login.",
     login: "Log in", logout: "Log out", locked: "Log in to control", cancel: "Cancel", wrongPw: "Wrong password", tooMany: "Too many attempts, wait 5 minutes",
-    hHistory: "History", jobsShort: "prints",
+    printerSays: "printer says", hHistory: "History", jobsShort: "prints",
     costFilShort: "plastic", costElShort: "power", costTotal: "total", v3d: "3D", vPhoto: "Photo", vPlate: "Preview", download: "Download",
     filaments: "Plastic", rpStart: "Start", rpEnd: "End", rpDur: "Duration", rpLayers: "Layers", rpPlastic: "Plastic", rpEnergy: "Electricity",
     rpCostFil: "Plastic", rpCostEl: "Electricity", rpTotal: "Total", rpTemps: "Temperatures", rpProgress: "Progress", noSamples: "No samples: the print started before the dashboard recorded them.",
@@ -1119,7 +1119,7 @@ function renderAMS(s) {
           ${spoolSVG(tr)}
           <div class="ty" style="color:${tr.empty ? "var(--faint)" : "var(--text)"}">${tr.empty ? t("empty") : esc(tr.type)}</div>
           <div class="br">${esc(tr.brand.replace(tr.type, "").trim() || (tr.empty ? "" : "—"))}</div>
-          <div class="rm" style="color:${tr.remain >= 0 && tr.remain < 15 ? "var(--red)" : "var(--dim)"}">${tr.empty ? "&nbsp;" : tr.remain < 0 ? "?" : tr.remain + "%"}</div>
+          <div class="rm" style="color:${(tr.left_g != null ? tr.left_g < 150 : tr.remain >= 0 && tr.remain < 15) ? "var(--red)" : "var(--dim)"}" title="${tr.left_g != null && tr.remain >= 0 ? esc(t("printerSays") + " " + tr.remain + "%") : ""}">${tr.empty ? "&nbsp;" : tr.left_g != null ? "~" + Math.round(tr.left_g) + " " + t("g") : tr.remain < 0 ? "?" : tr.remain + "%"}</div>
         </div>`).join("")}
       </div>
     </div>`).join("");
@@ -1497,7 +1497,8 @@ function renderMoney(s) {
        <div>${t("costFil")}: <b>${c.filament == null ? t("costSetPrices") : money(c.filament, c.currency)}</b> · ${t("costEnergy")}: <b>${c.energy == null ? "—" : money(c.energy, c.currency)}</b>${c.kwh != null ? ` (${c.kwh.toFixed(2)} ${t("kwh")})` : ""}</div>`;
   $("forecast").innerHTML = (s.job.forecast || []).map((f) => {
     const mark = f.status === "ok" ? `<b>✓ ${t("fcOk")}</b>` : f.status === "short" ? `<b>⚠ ${t("fcShort")}</b>` : t("fcUnknown");
-    const left = f.left_g == null ? "?" : `~${Math.round(f.left_g)} ${t("g")}`;
+    const left = f.left_g == null ? "?" : `~${Math.round(f.left_g)} ${t("g")}`
+      + (f.printer_g != null && Math.abs(f.printer_g - f.left_g) > 30 ? ` (${t("printerSays")} ${Math.round(f.printer_g)})` : "");
     return `<div class="fc ${f.status}"><span class="sw" style="width:10px;height:10px;border-radius:3px;background:${esc(f.color)};border:1px solid rgba(255,255,255,.3)"></span>${esc(f.ams)}·${f.slot}: ${t("fcLeft")} ${left}, ${t("fcNeed")} ${f.need_g} ${t("g")} — ${mark}</div>`;
   }).join("");
 }

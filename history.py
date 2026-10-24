@@ -35,6 +35,8 @@ CREATE INDEX IF NOT EXISTS job_samples_job ON job_samples(job_id);
 CREATE TABLE IF NOT EXISTS job_events (job_id INTEGER NOT NULL, t REAL, kind TEXT, text TEXT);
 CREATE INDEX IF NOT EXISTS job_events_job ON job_events(job_id);
 CREATE TABLE IF NOT EXISTS job_toolpath (job_id INTEGER PRIMARY KEY, data BLOB);  -- gzip of toolpath.build()
+-- Our own filament ledger per RFID spool: grams when first seen; usage comes from the jobs printed with it.
+CREATE TABLE IF NOT EXISTS spools (uuid TEXT PRIMARY KEY, type TEXT, color TEXT, first_seen REAL, start_g REAL);
 """
 
 DEFAULT_COSTS = {
@@ -156,6 +158,30 @@ class History:
         with self.lock:
             r = self.db.execute("SELECT data FROM job_toolpath WHERE job_id=?", (job_id,)).fetchone()
         return r[0] if r else None
+
+    def spool(self, uuid):
+        with self.lock:
+            r = self.db.execute("SELECT * FROM spools WHERE uuid=?", (uuid,)).fetchone()
+        return dict(r) if r else None
+
+    def add_spool(self, uuid, type_, color, t, grams):
+        with self.lock, self.db:
+            self.db.execute("INSERT OR IGNORE INTO spools VALUES(?,?,?,?,?)", (uuid, type_, color, t, grams))
+
+    def used_from_spool(self, uuid, since, exclude_job=None):
+        """Grams printed from this spool by finished prints started after `since` (failed ones pro rata)."""
+        with self.lock:
+            rows = self.db.execute("SELECT id, result, pct, filaments FROM jobs WHERE ended IS NOT NULL AND started>=?",
+                                   (since,)).fetchall()
+        total = 0.0
+        for r in rows:
+            if r["id"] == exclude_job:
+                continue
+            frac = 1.0 if r["result"] == "FINISH" else (r["pct"] or 0) / 100
+            for f in json.loads(r["filaments"] or "[]"):
+                if f.get("tray_uuid") == uuid:
+                    total += (f.get("g") or 0) * frac
+        return total
 
     def detail(self, job_id):
         """One print for the report page: the record (no blobs), its samples and its timeline."""
