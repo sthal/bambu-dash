@@ -434,6 +434,14 @@ $("form").onsubmit = async (e) => {
   } catch { showMsg("err", t("e_net")); }
   busy($("save"), false);
 };
+// Wide screens: scale the whole page up proportionally, like the dashboard (laptops and phones unchanged).
+function fitScreen() {
+  const z = innerWidth > 1440 ? Math.min(innerWidth / 1440, 1.8) : 1;
+  document.body.style.zoom = z === 1 ? "" : z.toFixed(3);
+}
+addEventListener("resize", fitScreen);
+fitScreen();
+
 // Back from settings (browser or mouse button) always goes to the main dashboard screen.
 const toMain = () => { location.href = "/" + (currentP && currentP !== "new" ? "?p=" + encodeURIComponent(currentP) : ""); };
 $("home").onclick = (e) => { e.preventDefault(); toMain(); };
