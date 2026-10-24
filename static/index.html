@@ -280,6 +280,39 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
 
 .offline .card:not(.log) { filter: saturate(.3) brightness(.75); }
 
+/* camera zoom & pan */
+.cam .view { overflow: hidden; touch-action: pan-y; }
+.cam .view.zoomed { touch-action: none; cursor: grab; }
+.cam .view.panning { cursor: grabbing; }
+.cam .view img, .cam .view video { transform-origin: 0 0; will-change: transform; }
+.zoom-badge { position: absolute; top: 56px; left: 26px; display: flex; align-items: center; gap: 6px; pointer-events: auto;
+  font: 700 12px var(--mono); color: #fff; background: rgba(10,12,30,.7); border: 1px solid var(--line-hi); border-radius: 9px; padding: 4px 4px 4px 9px; backdrop-filter: blur(6px); }
+.zoom-badge button { border: 0; background: rgba(255,255,255,.1); color: #fff; border-radius: 6px; font: 600 11px var(--sans); padding: 3px 7px; cursor: pointer; }
+
+/* model progress picture-in-picture */
+.pip { position: absolute; top: 50px; right: 22px; width: 150px; aspect-ratio: 1; border-radius: 14px; overflow: hidden; pointer-events: none;
+  background: rgba(6,8,22,.62); border: 1px solid var(--line-hi); backdrop-filter: blur(8px); box-shadow: 0 8px 30px rgba(0,0,0,.45); }
+.pip canvas { position: absolute; inset: 6px; width: calc(100% - 12px); height: calc(100% - 12px); }
+.pip .lbl { position: absolute; left: 0; right: 0; bottom: 5px; text-align: center; font: 600 10px var(--mono); color: var(--dim); letter-spacing: .08em; }
+
+/* kiosk: one screen, no controls, for a wall tablet or TV */
+body.kiosk .wrap { max-width: none; height: 100vh; display: flex; flex-direction: column; padding: 14px 18px; }
+body.kiosk header { margin-bottom: 12px; }
+body.kiosk header .meta-row > :not(#clock):not(#b-kiosk) { display: none; }
+body.kiosk #clock { font-size: 26px; }
+body.kiosk main.grid { flex: 1; min-height: 0; grid-template-columns: 2.3fr 1fr; grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas: "cam mission" "cam thermo"; }
+body.kiosk .controls, body.kiosk .log, body.kiosk .amscard, body.kiosk .payload { display: none; }
+body.kiosk .cam { grid-area: cam; min-height: 0; } body.kiosk .cam .view { min-height: 0; }
+body.kiosk .mission { grid-area: mission; justify-content: center; } body.kiosk .thermo { grid-area: thermo; }
+body.kiosk .hud .big { font-size: 84px; }
+body.kiosk .hud .task .n { font-size: 24px; }
+body.kiosk .times .stat .v { font-size: 34px; }
+body.kiosk .gauge .dial { height: 110px; }
+body.kiosk .spark { display: none; }
+body.kiosk.idle, body.kiosk.idle * { cursor: none !important; }
+body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
+
 @media (max-width: 1200px) {
   .span-8, .span-4 { grid-column: span 12; }
   .row-2 { grid-row: auto; }
@@ -296,6 +329,8 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
   .hud .tag { left: 44px; top: 22px; }
   .hud .fps { display: none; }
   .cam .tools { top: 14px; right: 14px; bottom: auto; }
+  .pip { width: 92px; top: 58px; right: 14px; border-radius: 10px; }
+  .zoom-badge { top: 52px; left: 16px; }
   .cam .tools .icon-btn { width: 34px; height: 34px; }
   .ring { width: 170px; height: 170px; }
   .ring .pct { font-size: 42px; }
@@ -329,6 +364,7 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
       <span class="chip opt" id="nozzle-chip">сопло —</span>
       <span class="chip" title="Wi-Fi"><span class="bars" id="wifi"><i style="height:4px"></i><i style="height:7px"></i><i style="height:10px"></i><i style="height:12px"></i></span><b id="wifi-v">—</b></span>
       <span id="clock">--:--</span>
+      <button class="icon-btn" id="b-kiosk" data-i18n-title="kiosk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></button>
       <button class="icon-btn" id="b-sound" data-i18n-title="sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path class="wave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/><path class="mute" d="M16 9l5 6M21 9l-5 6" hidden/></svg></button>
       <button class="icon-btn" id="b-notify" data-i18n-title="notify"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></button>
       <button class="icon-btn" id="b-lock" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path class="shackle" d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
@@ -349,6 +385,8 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
           <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
           <div class="tag"><span class="rec"></span>LIVE · CAM-01</div>
           <div class="fps" id="cam-res">—</div>
+          <div class="zoom-badge" id="zoom-badge" hidden><span id="zoom-v">1×</span><button id="zoom-reset" data-i18n="zoomReset">Сброс</button></div>
+          <div class="pip" id="pip" hidden><canvas id="pip-c" width="256" height="256"></canvas><span class="lbl" id="pip-lbl"></span></div>
           <div class="bottom">
             <div class="big" id="hud-pct">0<small>%</small></div>
             <div class="task">
@@ -358,6 +396,7 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
             </div>
           </div>
           <div class="tools">
+            <button class="icon-btn" id="b-pip" data-i18n-title="pip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5z"/><path d="M3 13l9 5 9-5" opacity=".6"/></svg></button>
             <button class="icon-btn" id="snap" data-i18n-title="snapshot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
             <button class="icon-btn" id="fs" data-i18n-title="fullscreen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
           </div>
@@ -398,7 +437,7 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
       </div>
     </section>
 
-    <section class="card span-4">
+    <section class="card payload span-4">
       <h2 data-i18n="hPayload">Груз</h2>
       <div class="model">
         <div class="thumb"><img id="thumb" alt="" hidden><div class="none" id="thumb-none" data-i18n="noPreview">НЕТ ПРЕВЬЮ</div></div>
@@ -413,7 +452,7 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
       </div>
     </section>
 
-    <section class="card span-8">
+    <section class="card thermo span-8">
       <h2 data-i18n="hThermo">Термодинамика</h2>
       <div class="temps" id="temps"></div>
     </section>
@@ -433,7 +472,7 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
       <div class="ai" id="ai"></div>
     </section>
 
-    <section class="card span-8">
+    <section class="card amscard span-8">
       <h2 data-i18n="hAms">Топливные баки · AMS</h2>
       <div class="ams-units" id="ams"></div>
     </section>
@@ -484,6 +523,7 @@ const I18N = {
     notifyOn: "Уведомления включены", notifyDenied: "Браузер запретил уведомления", soundOn: "Звук включён", soundOff: "Звук выключен",
     loginTitle: "Пульт защищён паролем", loginText: "Смотреть можно без пароля, а управлять принтером только после входа.",
     login: "Войти", logout: "Выйти", locked: "Войти для управления", cancel: "Отмена", wrongPw: "Неверный пароль", tooMany: "Слишком много попыток, подождите 5 минут",
+    zoomReset: "Сброс", pip: "Модель поверх камеры", kiosk: "Режим киоска (Esc — выход)", layerShort: "слой",
     nFinish: "Печать готова", nFailed: "Печать сорвалась", nPause: "Печать на паузе", nError: "Ошибка принтера",
   },
   en: {
@@ -506,6 +546,7 @@ const I18N = {
     notifyOn: "Notifications on", notifyDenied: "The browser blocked notifications", soundOn: "Sound on", soundOff: "Sound off",
     loginTitle: "Console is password-protected", loginText: "Anyone can watch; controlling the printer needs a login.",
     login: "Log in", logout: "Log out", locked: "Log in to control", cancel: "Cancel", wrongPw: "Wrong password", tooMany: "Too many attempts, wait 5 minutes",
+    zoomReset: "Reset", pip: "Model over camera", kiosk: "Kiosk mode (Esc to exit)", layerShort: "layer",
     nFinish: "Print finished", nFailed: "Print failed", nPause: "Print paused", nError: "Printer error",
   },
 };
@@ -733,7 +774,9 @@ function buildGauges() {
 function sparkline(svg, vals, color) {
   const v = vals.filter((x) => x != null);
   if (v.length < 2) { svg.innerHTML = ""; return; }
-  const lo = Math.min(...v) - 1, hi = Math.max(...v) + 1, n = vals.length;
+  // At least a 10° window, so ±1° sensor jitter doesn't look like a saw.
+  const mid = (Math.min(...v) + Math.max(...v)) / 2, half = Math.max(5, (Math.max(...v) - Math.min(...v)) / 2 + 1);
+  const lo = mid - half, hi = mid + half, n = vals.length;
   let d = "", started = false;
   vals.forEach((y, i) => {
     if (y == null) { started = false; return; }
@@ -879,8 +922,14 @@ function render(s) {
   $("weight").innerHTML = s.job.weight_g ? `${s.job.weight_g.toFixed(1)}<small> ${t("g")}</small>` : "—";
   $("pred").innerHTML = s.job.prediction_s ? fmtDur(s.job.prediction_s / 60) : "—";
   $("fils").innerHTML = (s.job.filaments || []).map((f) => `<div class="fil"><span class="sw" style="background:${esc(f.color)};color:${esc(f.color)}"></span><span>${esc(f.type)}</span><span class="t">${f.m ? f.m.toFixed(2) + " " + t("meters") : ""}</span><span class="g">${f.g ? f.g.toFixed(1) + " " + t("g") : ""}</span></div>`).join("");
-  if (s.job.thumb && s.job.thumb_v !== thumbV) { thumbV = s.job.thumb_v; $("thumb").src = "/thumb.png?v=" + encodeURIComponent(thumbV); $("thumb").hidden = false; $("thumb-none").hidden = true; }
+  if (s.job.thumb && s.job.thumb_v !== thumbV) {
+    thumbV = s.job.thumb_v;
+    const src = "/thumb.png?v=" + encodeURIComponent(thumbV);
+    $("thumb").src = src; makeSilhouette(src);
+    $("thumb").hidden = false; $("thumb-none").hidden = true;
+  }
   if (!s.job.thumb) { thumbV = null; $("thumb").hidden = true; $("thumb-none").hidden = false; }
+  renderPip(s);
 
   // controls
   $("b-light").classList.toggle("on", s.light);
@@ -904,6 +953,117 @@ function render(s) {
   announce(s, prevState);
   prevState = s.state;
 }
+
+/* ---------- camera zoom & pan: wheel, drag, pinch, double-click ---------- */
+const zoom = { s: 1, x: 0, y: 0 };
+const view = $("view"), pointers = new Map();
+let pinch0 = null, drag0 = null;
+function applyZoom() {
+  const w = view.clientWidth, h = view.clientHeight;
+  zoom.s = Math.min(Math.max(zoom.s, 1), 6);
+  zoom.x = Math.min(0, Math.max(w - w * zoom.s, zoom.x));  // never show past the frame edges
+  zoom.y = Math.min(0, Math.max(h - h * zoom.s, zoom.y));
+  const tf = zoom.s === 1 ? "" : `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.s})`;
+  vid.style.transform = tf; cam.style.transform = tf;
+  view.classList.toggle("zoomed", zoom.s > 1);
+  $("zoom-badge").hidden = zoom.s === 1;
+  $("zoom-v").textContent = zoom.s.toFixed(1) + "×";
+}
+function zoomAt(px, py, factor) {
+  const s1 = Math.min(Math.max(zoom.s * factor, 1), 6), k = s1 / zoom.s;
+  zoom.x = px - (px - zoom.x) * k; zoom.y = py - (py - zoom.y) * k; zoom.s = s1;
+  applyZoom();
+}
+const local = (e) => { const r = view.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+const onUI = (e) => e.target.closest("button, a, .zoom-badge");
+view.addEventListener("wheel", (e) => { if (onUI(e)) return; e.preventDefault(); zoomAt(...local(e), Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+view.addEventListener("dblclick", (e) => { if (onUI(e)) return; zoom.s > 1 ? (zoom.s = 1, applyZoom()) : zoomAt(...local(e), 2.5); });
+view.addEventListener("pointerdown", (e) => {
+  if (onUI(e)) return;
+  pointers.set(e.pointerId, local(e));
+  if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch0 = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), s: zoom.s }; drag0 = null; }
+  else if (zoom.s > 1) { drag0 = { p: local(e), x: zoom.x, y: zoom.y }; view.classList.add("panning"); view.setPointerCapture(e.pointerId); }
+});
+view.addEventListener("pointermove", (e) => {
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, local(e));
+  if (pinch0 && pointers.size === 2) {
+    const [a, b] = [...pointers.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    zoomAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (pinch0.s * d / pinch0.d) / zoom.s);
+  } else if (drag0) {
+    const p = local(e); zoom.x = drag0.x + p[0] - drag0.p[0]; zoom.y = drag0.y + p[1] - drag0.p[1]; applyZoom();
+  }
+});
+const endPointer = (e) => { pointers.delete(e.pointerId); if (pointers.size < 2) pinch0 = null; if (!pointers.size) { drag0 = null; view.classList.remove("panning"); } };
+["pointerup", "pointercancel", "pointerleave"].forEach((ev) => view.addEventListener(ev, endPointer));
+$("zoom-reset").onclick = () => { zoom.s = 1; applyZoom(); };
+addEventListener("resize", applyZoom);
+
+/* ---------- model progress over the camera: the plate render fills up layer by layer ---------- */
+let pipOn = true, pipBox = { t: 0.12, b: 0.88 }, pipSil = null;
+// The plate render's background is faintly (not fully) transparent, so build a clean cyan
+// silhouette from the clearly opaque pixels; it also stays visible for black filament.
+function makeSilhouette(src) {
+  const im = new Image();
+  im.onload = () => {
+    try {
+      const n = 256, c = document.createElement("canvas");
+      c.width = c.height = n;
+      const g = c.getContext("2d"); g.drawImage(im, 0, 0, n, n);
+      const d = g.getImageData(0, 0, n, n), a = d.data;
+      let lo = n, hi = -1;
+      for (let i = 0; i < a.length; i += 4) {
+        const on = a[i + 3] > 96;
+        a[i] = 170; a[i + 1] = 240; a[i + 2] = 255; a[i + 3] = on ? 255 : 0;
+        if (on) { const y = (i / 4 / n) | 0; if (y < lo) lo = y; if (y > hi) hi = y; }
+      }
+      g.putImageData(d, 0, 0);
+      if (hi > lo) pipBox = { t: lo / n, b: (hi + 1) / n };
+      pipSil = c;
+      if (S) renderPip(S);
+    } catch {}
+  };
+  im.src = src;
+}
+try { pipOn = localStorage.getItem("pip") !== "off"; } catch {}
+function renderPip(s) {
+  const show = pipOn && s.job.thumb && s.layers > 0 && ["RUNNING", "PAUSE", "PREPARE", "FINISH"].includes(s.state);
+  $("pip").hidden = !show;
+  $("b-pip").classList.toggle("on", pipOn);
+  if (!show) return;
+  const f = s.state === "FINISH" ? 1 : Math.min(s.layer / s.layers, 1);
+  $("pip-lbl").textContent = `${t("layerShort")} ${s.layer}/${s.layers}`;
+  if (!pipSil) return;
+  // Map progress onto the model's own vertical extent in the render (found from its alpha channel).
+  const n = 256, cut = Math.round((pipBox.t + (1 - f) * (pipBox.b - pipBox.t)) * n);
+  const g = $("pip-c").getContext("2d");
+  g.clearRect(0, 0, n, n);
+  g.globalAlpha = 0.16; g.drawImage(pipSil, 0, 0);
+  g.globalAlpha = 1; g.shadowColor = "#48e0ff"; g.shadowBlur = 10;
+  if (cut < n) g.drawImage(pipSil, 0, cut, n, n - cut, 0, cut, n, n - cut);
+  if (f < 1) { g.fillStyle = "#48e0ff"; g.shadowBlur = 14; g.fillRect(4, cut - 1, n - 8, 3); }
+  g.shadowBlur = 0;
+}
+$("b-pip").onclick = () => { pipOn = !pipOn; try { localStorage.setItem("pip", pipOn ? "on" : "off"); } catch {} if (S) renderPip(S); };
+
+/* ---------- kiosk: one screen for a wall tablet / TV; keeps the screen awake ---------- */
+let wakeLock = null, idleTimer = 0;
+async function holdWake() { try { if (document.body.classList.contains("kiosk") && navigator.wakeLock) wakeLock = await navigator.wakeLock.request("screen"); } catch {} }
+function setKiosk(on, fromUser) {
+  document.body.classList.toggle("kiosk", on);
+  const u = new URL(location.href); on ? u.searchParams.set("kiosk", "1") : u.searchParams.delete("kiosk"); history.replaceState(null, "", u);
+  if (on) { holdWake(); if (fromUser && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); }
+  else { if (wakeLock) wakeLock.release().catch(() => {}); wakeLock = null; if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); }
+  setTimeout(applyZoom, 50);
+}
+$("b-kiosk").onclick = () => setKiosk(!document.body.classList.contains("kiosk"), true);
+addEventListener("keydown", (e) => { if (e.key === "Escape" && document.body.classList.contains("kiosk")) setKiosk(false); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) holdWake(); });
+addEventListener("pointermove", () => {
+  document.body.classList.remove("idle"); clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => document.body.classList.add("idle"), 3000);
+});
+if (new URLSearchParams(location.search).get("kiosk") === "1") setKiosk(true, false);
 
 /* ---------- wiring ---------- */
 applyStatic();
