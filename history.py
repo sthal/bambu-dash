@@ -30,6 +30,11 @@ CREATE TABLE IF NOT EXISTS jobs (
     currency TEXT
 );
 CREATE INDEX IF NOT EXISTS jobs_started ON jobs(started);
+CREATE TABLE IF NOT EXISTS job_samples (job_id INTEGER NOT NULL, t REAL, nozzle REAL, bed REAL, chamber REAL, pct INTEGER, layer INTEGER);
+CREATE INDEX IF NOT EXISTS job_samples_job ON job_samples(job_id);
+CREATE TABLE IF NOT EXISTS job_events (job_id INTEGER NOT NULL, t REAL, kind TEXT, text TEXT);
+CREATE INDEX IF NOT EXISTS job_events_job ON job_events(job_id);
+CREATE TABLE IF NOT EXISTS job_toolpath (job_id INTEGER PRIMARY KEY, data BLOB);  -- gzip of toolpath.build()
 """
 
 DEFAULT_COSTS = {
@@ -131,7 +136,42 @@ class History:
 
     def delete(self, job_id):
         with self.lock, self.db:
+            for table in ("job_samples", "job_events", "job_toolpath"):
+                self.db.execute(f"DELETE FROM {table} WHERE job_id=?", (job_id,))
             self.db.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+
+    def add_sample(self, job_id, t, nozzle, bed, chamber, pct, layer):
+        with self.lock, self.db:
+            self.db.execute("INSERT INTO job_samples VALUES(?,?,?,?,?,?,?)", (job_id, t, nozzle, bed, chamber, pct, layer))
+
+    def add_event(self, job_id, t, kind, text):
+        with self.lock, self.db:
+            self.db.execute("INSERT INTO job_events VALUES(?,?,?,?)", (job_id, t, kind, json.dumps(text, ensure_ascii=False)))
+
+    def set_toolpath(self, job_id, gz):
+        with self.lock, self.db:
+            self.db.execute("INSERT OR REPLACE INTO job_toolpath VALUES(?,?)", (job_id, gz))
+
+    def toolpath(self, job_id):
+        with self.lock:
+            r = self.db.execute("SELECT data FROM job_toolpath WHERE job_id=?", (job_id,)).fetchone()
+        return r[0] if r else None
+
+    def detail(self, job_id):
+        """One print for the report page: the record (no blobs), its samples and its timeline."""
+        with self.lock:
+            r = self.db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if not r:
+                return None
+            rec = {k: r[k] for k in r.keys() if k not in ("thumb", "snapshot")}
+            rec["has_thumb"], rec["has_snapshot"] = r["thumb"] is not None, r["snapshot"] is not None
+            rec["samples"] = [list(x) for x in self.db.execute(
+                "SELECT t, nozzle, bed, chamber, pct, layer FROM job_samples WHERE job_id=? ORDER BY t", (job_id,))]
+            rec["events"] = [{"t": e[0], "kind": e[1], "text": json.loads(e[2])} for e in self.db.execute(
+                "SELECT t, kind, text FROM job_events WHERE job_id=? ORDER BY t", (job_id,))]
+            rec["has_toolpath"] = self.db.execute("SELECT 1 FROM job_toolpath WHERE job_id=?", (job_id,)).fetchone() is not None
+        rec["filaments"] = json.loads(rec["filaments"] or "[]")
+        return rec
 
     def blob(self, job_id, kind):
         assert kind in ("thumb", "snapshot")

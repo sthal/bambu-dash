@@ -8,6 +8,7 @@ RTSPS (322) for the camera via ffmpeg, implicit FTPS (990) for the job's .3mf
 import collections
 import concurrent.futures
 import ftplib
+import gzip
 import hashlib
 import hmac
 import io
@@ -33,6 +34,7 @@ from urllib.parse import parse_qs
 
 import paho.mqtt.client as mqtt
 
+import toolpath
 from history import DEFAULT_COSTS, History, job_costs
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -460,6 +462,7 @@ class Printer:
         self.prev = {"state": None, "stage": None, "err": None, "hms": ()}
         self.sse_clients = []
         self.seq = 0
+        self.sent = collections.deque(maxlen=64)  # sequence ids of our own commands
         self.relay = Relay(self)
         self.camera = Camera(self)
         self.h264 = H264Camera(self)
@@ -479,7 +482,11 @@ class Printer:
         return f"rtsps://bblp:{self.conf['access_code']}@127.0.0.1:{self.relay.port}/streaming/live/1"
 
     def log(self, kind, text):
-        self.events.appendleft({"t": time.time(), "kind": kind, "text": text})
+        now = time.time()
+        self.events.appendleft({"t": now, "kind": kind, "text": text})
+        jid = self.job.get("db_id")
+        if jid and kind in ("state", "stage", "error", "cmd", "ack", "job"):
+            hist_db.add_event(jid, now, kind, text)
         self.dirty.set()
 
     def stop(self):
@@ -662,6 +669,8 @@ class Printer:
                   "filaments": meta.get("filaments") or [], "layers": int(_num(self.raw.get("total_layer_num"), 0) or 0)}
         if job.get("thumb"):
             fields["thumb"] = job["thumb"]
+        if job.get("toolpath"):
+            hist_db.set_toolpath(jid, job["toolpath"])
         rec = hist_db.get(jid)
         if rec and rec["start_estimated"]:
             fields["started"] = time.time() - self._elapsed_guess()
@@ -746,7 +755,7 @@ class Printer:
                 job["started_at"] = time.time()
             prev["state"] = state
         if key != job["key"]:
-            job.update(key=key, thumb=None, meta=None)
+            job.update(key=key, thumb=None, meta=None, toolpath=None)
             if p.get("subtask_name"):
                 self.log("job", L(f"Задание: {p.get('subtask_name')}", f"Job: {p.get('subtask_name')}"))
         stg = p.get("stg_cur")
@@ -775,6 +784,8 @@ class Printer:
         self.seq += 1
         for v in payload.values():
             v["sequence_id"] = str(self.seq)
+        if not any(v.get("command") == "pushall" for v in payload.values()):
+            self.sent.append(str(self.seq))
         self.client.publish(f"device/{self.conf['serial']}/request", json.dumps(payload))
 
     def on_connect(self, c, u, flags, rc, props=None):
@@ -802,7 +813,10 @@ class Printer:
                 body = d.get(section)
                 if not isinstance(body, dict):
                     continue
-                if body.get("result") and body.get("command") not in ("push_status", None):
+                # The printer broadcasts every command reply to all clients (Bambu Studio, Handy...);
+                # only replies to our own commands belong in our log and may lock controls.
+                if body.get("result") and body.get("command") not in ("push_status", None) \
+                        and str(body.get("sequence_id")) in self.sent:
                     ok = str(body.get("result")).lower() == "success"
                     why = body.get("reason") or body.get("err_code") or ""
                     cmd = body["command"]
@@ -871,6 +885,9 @@ class Printer:
                 v = self.build_view()
             t = v["temps"]
             self.hist.append([round(time.time()), t["nozzle"]["cur"], t["bed"]["cur"], t["chamber"]["cur"], v["pct"]])
+            if n % 6 == 0 and self.job.get("db_id") and v["state"] in ACTIVE:  # every 30 s into the print report
+                hist_db.add_sample(self.job["db_id"], time.time(), t["nozzle"]["cur"], t["bed"]["cur"],
+                                   t["chamber"]["cur"], v["pct"], v["layer"])
             self.dirty.set()
             if n % 120 == 0 and self.mqtt_ok:
                 self.send({"pushing": {"command": "pushall"}})
@@ -897,20 +914,15 @@ class Printer:
     def _fetch_key(self):
         return f"{self.raw.get('subtask_name')}#{self.raw.get('plate_idx')}"
 
-    def fetch_job(self):
-        job = self.job
-        with self.lock:
-            name, plate, key = self.raw.get("subtask_name") or "", int(_num(self.raw.get("plate_idx"), 1) or 1), self._fetch_key()
-        if job.get("_busy"):
-            return
-        job["_busy"] = True
+    def download_3mf(self, name):
+        """The job's .gcode.3mf from the printer's storage (FTPS)."""
+        ctx = ssl.create_default_context()
+        ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
+        f = ImplicitFTPS(context=ctx)
+        f.connect(self.conf["host"], 990, timeout=20)
+        f.login("bblp", self.conf["access_code"])
+        f.prot_p()
         try:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
-            f = ImplicitFTPS(context=ctx)
-            f.connect(self.conf["host"], 990, timeout=20)
-            f.login("bblp", self.conf["access_code"])
-            f.prot_p()
             files = []
             for d in ("/cache", "/"):
                 try:
@@ -923,7 +935,32 @@ class Printer:
                 raise FileNotFoundError(f"no .3mf for {name}")
             buf = io.BytesIO()
             f.retrbinary(f"RETR {match[0]}", buf.write)
-            f.quit()
+            return buf.getvalue()
+        finally:
+            try:
+                f.quit()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def backfill_toolpath(self, rec):
+        """Older prints (or ones started before this feature): rebuild the 3D preview if the file is still on the printer."""
+        data = self.download_3mf(rec["task"] or "")
+        tp = toolpath.build(toolpath.gcode_from_3mf(data, rec["plate"] or 1) or "")
+        if not tp:
+            return None
+        gz = gzip.compress(tp, 6)
+        hist_db.set_toolpath(rec["id"], gz)
+        return gz
+
+    def fetch_job(self):
+        job = self.job
+        with self.lock:
+            name, plate, key = self.raw.get("subtask_name") or "", int(_num(self.raw.get("plate_idx"), 1) or 1), self._fetch_key()
+        if job.get("_busy"):
+            return
+        job["_busy"] = True
+        try:
+            buf = io.BytesIO(self.download_3mf(name))
             z = zipfile.ZipFile(buf)
             names = set(z.namelist())
             thumb = None
@@ -942,8 +979,9 @@ class Printer:
                             "filaments": [{"id": int(_num(fl.get("id"), 0) or 0), "type": fl.get("type"),
                                            "color": fl.get("color"), "g": _num(fl.get("used_g")), "m": _num(fl.get("used_m"))}
                                           for fl in pl.findall("filament")]}
+            tp = toolpath.build(toolpath.gcode_from_3mf(buf.getvalue(), plate) or "")
             with self.lock:
-                job.update(thumb=thumb, meta=meta, fetched_for=key)
+                job.update(thumb=thumb, meta=meta, fetched_for=key, toolpath=gzip.compress(tp, 6) if tp else None)
                 self.remember_meta()
             kb = len(buf.getvalue()) // 1024
             self.log("job", L(f"Загружено превью модели ({kb} КБ .3mf)", f"Model preview loaded ({kb} KB .3mf)"))
@@ -1301,6 +1339,29 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"jobs": hist_db.recent(100, serial), "currency": cfg["costs"].get("currency")})
             days = int(q["days"]) if q.get("days", "").isdigit() else None
             return self._json(200, {**hist_db.stats(days, serial), "currency": cfg["costs"].get("currency")})
+        m = re.match(r"^/api/history/(\d+)$", path)
+        if m:
+            d = hist_db.detail(int(m.group(1)))
+            if not d:
+                return self._send(404, b"", "text/plain")
+            pr = next((x for x in printers.values() if x.conf.get("serial") == d["serial"]), None)
+            d["printer"] = pr.conf["name"] if pr else d["serial"]
+            return self._json(200, d)
+        m = re.match(r"^/api/history/(\d+)/toolpath\.bin$", path)
+        if m:
+            jid = int(m.group(1))
+            gz = hist_db.toolpath(jid)
+            if not gz:
+                rec = hist_db.get(jid)
+                pr = rec and next((x for x in printers.values() if x.conf.get("serial") == rec["serial"]), None)
+                try:
+                    gz = pr.backfill_toolpath(rec) if pr and pr.configured() else None
+                except Exception:  # noqa: BLE001 - file gone from the printer, FTP down...
+                    gz = None
+            if not gz:
+                return self._send(404, b"no toolpath", "text/plain")
+            return self._send(200, gz, "application/octet-stream", headers=[("Content-Encoding", "gzip")],
+                              cache="max-age=86400")
         m = re.match(r"^/api/history/(\d+)/(snapshot\.jpg|thumb\.png)$", path)
         if m:
             data = hist_db.blob(int(m.group(1)), "snapshot" if m.group(2).startswith("snap") else "thumb")

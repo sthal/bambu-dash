@@ -189,7 +189,9 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
 .hist-head .seg { display: inline-grid; grid-auto-flow: column; grid-template-columns: none; }
 .hist-head .seg button { padding: 7px 12px; }
 .jobs { display: grid; gap: 8px; }
-.jobrow { display: grid; grid-template-columns: 64px minmax(0, 2.4fr) repeat(3, minmax(0, 1fr)) 110px 28px; gap: 14px; align-items: center;
+.jobrow { cursor: pointer; transition: border-color .2s; }
+.jobrow:hover { border-color: var(--line-hi); }
+.jobrow { display: grid; grid-template-columns: 64px minmax(0, 2.2fr) repeat(5, minmax(0, 1fr)) 110px 28px; gap: 12px; align-items: center;
   padding: 8px 10px; border-radius: 14px; background: rgba(255,255,255,.03); border: 1px solid var(--line); }
 .jobrow img, .jobrow .noimg { width: 64px; height: 48px; border-radius: 9px; object-fit: cover; background: #000; display: block; }
 .jobrow .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -227,6 +229,39 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
 .mat .track { height: 10px; border-radius: 5px; background: rgba(255,255,255,.06); overflow: hidden; }
 .mat .track i { display: block; height: 100%; border-radius: 0 4px 4px 0; border: 1px solid rgba(255,255,255,.25); border-left: 0; box-sizing: border-box; }
 .mat .g { text-align: right; color: var(--text); }
+/* print report */
+.report { position: fixed; inset: 0; z-index: 35; overflow: auto; background: rgba(3,4,12,.82); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.report .in { max-width: 1500px; margin: 0 auto; padding: 18px 22px 40px; }
+.rp-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+.rp-head h1 { margin: 0; font-size: 22px; }
+.rp-head .sub { color: var(--dim); font: 500 12px var(--mono); }
+.rp-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 16px; }
+.rp-view { position: relative; aspect-ratio: 1680 / 1080; border-radius: 16px; overflow: hidden; background: radial-gradient(circle at 50% 40%, #11163a, #04050d); border: 1px solid var(--line); }
+.rp-view canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; display: block; }
+.rp-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.rp-tabs.seg { display: inline-grid; grid-auto-flow: column; grid-template-columns: none; }
+.rp-tabs.seg button { padding: 7px 14px; }
+.rp-layers { position: absolute; left: 14px; right: 14px; bottom: 12px; z-index: 2; display: flex; gap: 10px; align-items: center; font: 600 12px var(--mono); color: var(--text);
+  background: rgba(6,8,22,.7); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
+.rp-layers input { flex: 1; accent-color: var(--cyan); }
+.rp-legend { position: absolute; top: 12px; left: 12px; z-index: 2; display: grid; gap: 4px; font: 500 11px var(--mono); }
+.rp-legend button { display: flex; align-items: center; gap: 6px; border: 0; background: rgba(6,8,22,.6); color: var(--text); padding: 3px 8px; border-radius: 7px; cursor: pointer; font: inherit; text-align: left; }
+.rp-legend button.off { opacity: .35; }
+.rp-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.rp-msg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font: 500 13px var(--mono); text-align: center; padding: 20px; }
+.rp-side { display: grid; gap: 12px; align-content: start; }
+.rp-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.rp-money { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.rp-money .tile:last-child { border-color: rgba(72,224,255,.4); box-shadow: 0 0 20px rgba(72,224,255,.12); }
+.rp-charts { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; margin-top: 16px; }
+.lc { position: relative; }
+.lc svg { width: 100%; height: 220px; display: block; overflow: visible; }
+.lc .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; font: 500 11px var(--mono); color: var(--dim); }
+.lc .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+.lc .xh { stroke: rgba(255,255,255,.35); stroke-width: 1; opacity: 0; }
+.lc:hover .xh { opacity: 1; }
+.rp-events { margin-top: 16px; }
+@media (max-width: 1000px) { .rp-grid, .rp-charts { grid-template-columns: 1fr; } }
 @media (max-width: 1200px) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } .charts { grid-template-columns: 1fr; } }
 .fil { display: flex; align-items: center; gap: 9px; font: 500 12px var(--mono); }
 .fil .sw { width: 14px; height: 14px; border-radius: 4px; flex: none; box-shadow: 0 0 10px currentColor; border: 1px solid rgba(255,255,255,.25); }
@@ -393,6 +428,8 @@ body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
 }
 @media (max-width: 640px) {
   .jobrow { grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px; }
+  .rp-tiles, .rp-money { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .report .in { padding: 12px 12px 30px; }
   .jobrow .num, .jobrow .del { display: none; }
   .jobrow img, .jobrow .noimg { width: 56px; height: 42px; }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -594,6 +631,35 @@ body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
   </main>
 </div>
 <div class="toast" id="toast"></div>
+<div class="report" id="report" hidden><div class="in">
+  <div class="rp-head">
+    <h1 id="rp-title">—</h1><span class="res" id="rp-res"></span><span class="sub" id="rp-sub"></span>
+    <span class="hspace"></span><button class="icon-btn" id="rp-close" title="Esc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div>
+  <div class="rp-grid">
+    <div>
+    <div class="rp-bar">
+      <div class="seg rp-tabs" id="rp-tabs"><button data-v="3d" class="on" data-i18n="v3d">3D</button><button data-v="photo" data-i18n="vPhoto">Фото</button><button data-v="plate" data-i18n="vPlate">Превью</button></div>
+      <button class="icon-btn" id="rp-dl" data-i18n-title="download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></button>
+    </div>
+    <div class="rp-view" id="rp-view">
+      <div class="rp-legend" id="rp-legend"></div>
+      <div class="rp-msg" id="rp-msg"></div>
+      <div class="rp-layers" id="rp-layers" hidden><span data-i18n="layer">Слой</span><input type="range" id="rp-layer" min="1" max="1" value="1"><span id="rp-layer-v">—</span></div>
+    </div>
+    </div>
+    <div class="rp-side">
+      <div class="rp-tiles" id="rp-tiles"></div>
+      <div class="rp-money" id="rp-money"></div>
+      <div class="card" style="padding:14px"><h2 data-i18n="filaments">Пластик</h2><div class="fil-list" id="rp-fils"></div></div>
+    </div>
+  </div>
+  <div class="rp-charts">
+    <div class="chart lc" id="rp-temps"></div>
+    <div class="chart lc" id="rp-prog"></div>
+  </div>
+  <div class="card rp-events"><h2 data-i18n="hLog">Бортжурнал</h2><ul class="events" id="rp-events"></ul></div>
+</div></div>
 <div class="modal" id="login" hidden>
   <form id="login-form" autocomplete="on">
     <h3 data-i18n="loginTitle">Пульт защищён паролем</h3>
@@ -638,6 +704,11 @@ const I18N = {
     loginTitle: "Пульт защищён паролем", loginText: "Смотреть можно без пароля, а управлять принтером только после входа.",
     login: "Войти", logout: "Выйти", locked: "Войти для управления", cancel: "Отмена", wrongPw: "Неверный пароль", tooMany: "Слишком много попыток, подождите 5 минут",
     hHistory: "История", jobsShort: "печ.",
+    costFilShort: "пластик", costElShort: "электр.", costTotal: "итого", v3d: "3D", vPhoto: "Фото", vPlate: "Превью", download: "Скачать",
+    filaments: "Пластик", rpStart: "Начало", rpEnd: "Конец", rpDur: "Длительность", rpLayers: "Слоёв", rpPlastic: "Пластик", rpEnergy: "Электричество",
+    rpCostFil: "Пластик", rpCostEl: "Электричество", rpTotal: "Итого", rpTemps: "Температуры", rpProgress: "Прогресс", noSamples: "Нет замеров: печать началась до того, как дашборд начал их записывать.",
+    loading3d: "Загружаю траектории печати…", no3d: "3D недоступно: файла задания уже нет на принтере.", fail3d: "Не удалось загрузить 3D-просмотр (нужен интернет для three.js).",
+    noPhoto: "Финального снимка нет", rpFinal: "ФИНАЛ", feat: { "Outer wall": "Внешняя стенка", "Inner wall": "Внутренние стенки", "Overhang wall": "Нависания", "Top surface": "Верх", "Bottom surface": "Низ", "Internal solid infill": "Сплошное заполнение", "Sparse infill": "Заполнение", "Bridge": "Мосты", "Support": "Поддержки", "Support interface": "Интерфейс поддержек", "Brim": "Кайма", "Skirt": "Юбка", "Prime tower": "Башня очистки", "Other": "Прочее" },
     lockedShort: "Принтер не принимает эту команду без Developer Mode",
     dryTitle: "Сушка", dryStart: "Начать", dryStop: "Остановить", dryLeft: "сушится, осталось", dryConfirm: "Начать сушку?",
     tempConfirm: "Изменить температуру во время печати?", retry: "Попробовать снова",
@@ -672,6 +743,11 @@ const I18N = {
     loginTitle: "Console is password-protected", loginText: "Anyone can watch; controlling the printer needs a login.",
     login: "Log in", logout: "Log out", locked: "Log in to control", cancel: "Cancel", wrongPw: "Wrong password", tooMany: "Too many attempts, wait 5 minutes",
     hHistory: "History", jobsShort: "prints",
+    costFilShort: "plastic", costElShort: "power", costTotal: "total", v3d: "3D", vPhoto: "Photo", vPlate: "Preview", download: "Download",
+    filaments: "Plastic", rpStart: "Start", rpEnd: "End", rpDur: "Duration", rpLayers: "Layers", rpPlastic: "Plastic", rpEnergy: "Electricity",
+    rpCostFil: "Plastic", rpCostEl: "Electricity", rpTotal: "Total", rpTemps: "Temperatures", rpProgress: "Progress", noSamples: "No samples: the print started before the dashboard recorded them.",
+    loading3d: "Loading the print toolpaths…", no3d: "3D unavailable: the job file is no longer on the printer.", fail3d: "Could not load the 3D viewer (three.js needs internet).",
+    noPhoto: "No final photo", rpFinal: "FINAL", feat: { "Outer wall": "Outer wall", "Inner wall": "Inner walls", "Overhang wall": "Overhangs", "Top surface": "Top", "Bottom surface": "Bottom", "Internal solid infill": "Solid infill", "Sparse infill": "Infill", "Bridge": "Bridges", "Support": "Supports", "Support interface": "Support interface", "Brim": "Brim", "Skirt": "Skirt", "Prime tower": "Prime tower", "Other": "Other" },
     lockedShort: "The printer refuses this command without Developer Mode",
     dryTitle: "Drying", dryStart: "Start", dryStop: "Stop", dryLeft: "drying, left", dryConfirm: "Start drying?",
     tempConfirm: "Change the temperature during a print?", retry: "Try again",
@@ -1145,27 +1221,34 @@ addEventListener("resize", applyZoom);
 let pipOn = true, pipBox = { t: 0.12, b: 0.88 }, pipSil = null;
 // The plate render's background is faintly (not fully) transparent, so build a clean cyan
 // silhouette from the clearly opaque pixels; it also stays visible for black filament.
-function makeSilhouette(src) {
-  const im = new Image();
-  im.onload = () => {
-    try {
-      const n = 256, c = document.createElement("canvas");
-      c.width = c.height = n;
-      const g = c.getContext("2d"); g.drawImage(im, 0, 0, n, n);
-      const d = g.getImageData(0, 0, n, n), a = d.data;
-      let lo = n, hi = -1;
-      for (let i = 0; i < a.length; i += 4) {
-        const on = a[i + 3] > 96;
-        a[i] = 170; a[i + 1] = 240; a[i + 2] = 255; a[i + 3] = on ? 255 : 0;
-        if (on) { const y = (i / 4 / n) | 0; if (y < lo) lo = y; if (y > hi) hi = y; }
-      }
-      g.putImageData(d, 0, 0);
-      if (hi > lo) pipBox = { t: lo / n, b: (hi + 1) / n };
-      pipSil = c;
-      if (S) renderPip(S);
-    } catch {}
-  };
-  im.src = src;
+function silhouetteFrom(src) {
+  return new Promise((resolve) => {
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const n = 256, c = document.createElement("canvas");
+        c.width = c.height = n;
+        const g = c.getContext("2d"); g.drawImage(im, 0, 0, n, n);
+        const d = g.getImageData(0, 0, n, n), a = d.data;
+        let lo = n, hi = -1;
+        for (let i = 0; i < a.length; i += 4) {
+          const on = a[i + 3] > 96;
+          a[i] = 170; a[i + 1] = 240; a[i + 2] = 255; a[i + 3] = on ? 255 : 0;
+          if (on) { const y = (i / 4 / n) | 0; if (y < lo) lo = y; if (y > hi) hi = y; }
+        }
+        g.putImageData(d, 0, 0);
+        resolve({ canvas: c, box: hi > lo ? { t: lo / n, b: (hi + 1) / n } : { t: 0.12, b: 0.88 } });
+      } catch { resolve(null); }
+    };
+    im.onerror = () => resolve(null);
+    im.src = src;
+  });
+}
+async function makeSilhouette(src) {
+  const r = await silhouetteFrom(src);
+  if (!r) return;
+  pipSil = r.canvas; pipBox = r.box;
+  if (S) renderPip(S);
 }
 try { pipOn = localStorage.getItem("pip") !== "off"; } catch {}
 function renderPip(s) {
@@ -1321,12 +1404,15 @@ function renderJobs(d) {
     const frac = j.result === "FINISH" ? 1 : (j.pct || 0) / 100;
     const grams = (j.filaments || []).reduce((a, f) => a + (f.g || 0), 0) * (j.result ? frac : 1);
     const cost = j.cost_filament == null && j.cost_energy == null ? null : (j.cost_filament || 0) + (j.cost_energy || 0);
-    return `<div class="jobrow">
-      ${img ? `<a href="${img}" target="_blank" rel="noopener"><img src="${img}" alt="" loading="lazy"></a>` : `<span class="noimg"></span>`}
+    const c = j.currency || cur;
+    return `<div class="jobrow" data-job="${j.id}">
+      ${img ? `<img src="${img}" alt="" loading="lazy">` : `<span class="noimg"></span>`}
       <div><div class="nm">${esc(j.task || "—")}</div><div class="dt">${fmtDate(j.started)}${j.start_estimated ? " · " + t("estimated") : ""}</div></div>
       <div class="num"><span class="lb">${t("duration")}</span>${fmtDur((end - j.started) / 60)}</div>
       <div class="num"><span class="lb">${t("plastic")}</span>${grams ? grams.toFixed(0) + " " + t("g") : "—"}</div>
-      <div class="num"><span class="lb">${t("cost")}</span>${cost == null ? "—" : money(cost, j.currency || cur)}</div>
+      <div class="num"><span class="lb">${t("costFilShort")}</span>${j.cost_filament == null ? "—" : money(j.cost_filament, c)}</div>
+      <div class="num"><span class="lb">${t("costElShort")}</span>${j.cost_energy == null ? "—" : money(j.cost_energy, c)}</div>
+      <div class="num"><span class="lb">${t("costTotal")}</span>${cost == null ? "—" : `<b style="color:var(--cyan)">${money(cost, c)}</b>`}</div>
       <span class="res ${res}">${t("res" + res)}${j.result && j.result !== "FINISH" ? ` ${j.pct}%` : ""}</span>
       ${j.result ? `<button class="del" data-id="${j.id}" title="×">×</button>` : "<span></span>"}
     </div>`;
@@ -1381,6 +1467,8 @@ function daysChart(daily) {
 $("h-tabs").onclick = (e) => { const b = e.target.closest("button"); if (b) { histTab = b.dataset.tab; renderHistory(); } };
 $("h-range").onclick = (e) => { const b = e.target.closest("button"); if (b) { histDays = b.dataset.d; loadHistory(); } };
 $("h-log").onclick = async (e) => {
+  const row = e.target.closest(".jobrow");
+  if (row && !e.target.closest(".del")) return openReport(+row.dataset.job);
   const b = e.target.closest(".del"); if (!b || !confirm(t("delConfirm"))) return;
   const r = await fetch("/api/history/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: +b.dataset.id }) });
   if (r.status === 401) return askLogin(() => b.click());
@@ -1399,9 +1487,287 @@ $("h-stats").addEventListener("mousemove", (e) => {
 $("h-stats").addEventListener("mouseleave", () => { const tip = document.querySelector("#ch-days .tip"); if (tip) tip.remove(); });
 setInterval(loadHistory, 5 * 60 * 1000);
 
+/* ---------- snapshot post-processing: the camera frame dressed in the dashboard HUD ---------- */
+function loadImage(src) {
+  return new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
+}
+function saveCanvas(c, name) {
+  c.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); }, "image/jpeg", 0.92);
+}
+function roundRect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+async function composeShot(src, o) {
+  await document.fonts.ready;
+  const W = src.videoWidth || src.naturalWidth || src.width, H = src.videoHeight || src.naturalHeight || src.height;
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d"), k = W / 1000;  // HUD scale: designed on a 1000 px wide frame
+  g.drawImage(src, 0, 0, W, H);
+  // grade: slight cool tint and vignette, like the live view
+  g.fillStyle = "rgba(20,30,80,.10)"; g.fillRect(0, 0, W, H);
+  let v = g.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.9);
+  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,10,.55)"); g.fillStyle = v; g.fillRect(0, 0, W, H);
+  v = g.createLinearGradient(0, H * 0.62, 0, H); v.addColorStop(0, "rgba(3,4,12,0)"); v.addColorStop(1, "rgba(3,4,12,.9)"); g.fillStyle = v; g.fillRect(0, H * 0.62, W, H * 0.38);
+  // corner brackets
+  g.strokeStyle = "rgba(72,224,255,.8)"; g.lineWidth = 2 * k; g.shadowColor = "#48e0ff"; g.shadowBlur = 8 * k;
+  const m = 18 * k, L = 34 * k;
+  for (const [x, y, dx, dy] of [[m, m, 1, 1], [W - m, m, -1, 1], [m, H - m, 1, -1], [W - m, H - m, -1, -1]]) {
+    g.beginPath(); g.moveTo(x, y + dy * L); g.lineTo(x, y); g.lineTo(x + dx * L, y); g.stroke();
+  }
+  g.shadowBlur = 0;
+  // tag + resolution
+  g.font = `600 ${13 * k}px "JetBrains Mono", monospace`; g.textBaseline = "middle";
+  g.fillStyle = o.live ? "#ff4d6a" : "#3dffaa"; g.shadowColor = g.fillStyle; g.shadowBlur = 10 * k;
+  g.beginPath(); g.arc(m + 26 * k, m + 18 * k, 5 * k, 0, 6.283); g.fill(); g.shadowBlur = 0;
+  g.fillStyle = "#fff"; g.fillText(o.tag, m + 38 * k, m + 18 * k);
+  g.font = `500 ${11 * k}px "JetBrains Mono", monospace`; g.fillStyle = "rgba(255,255,255,.75)"; g.textAlign = "right";
+  g.fillText(`${W}×${H} · ${new Date(o.time || Date.now()).toLocaleString(loc(), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`, W - m - 26 * k, m + 18 * k);
+  g.textAlign = "left";
+  // model silhouette filling up
+  if (o.sil) {
+    const pw = 150 * k, px = W - m - 10 * k - pw, py = m + 40 * k;
+    roundRect(g, px, py, pw, pw, 14 * k); g.fillStyle = "rgba(6,8,22,.62)"; g.fill(); g.strokeStyle = "rgba(130,170,255,.38)"; g.lineWidth = 1 * k; g.stroke();
+    const n = pw - 12 * k, ix = px + 6 * k, iy = py + 6 * k, cut = (o.sil.box.t + (1 - o.sil.f) * (o.sil.box.b - o.sil.box.t));
+    g.globalAlpha = 0.16; g.drawImage(o.sil.canvas, ix, iy, n, n); g.globalAlpha = 1;
+    g.save(); g.beginPath(); g.rect(ix, iy + n * cut, n, n * (1 - cut)); g.clip();
+    g.shadowColor = "#48e0ff"; g.shadowBlur = 10 * k; g.drawImage(o.sil.canvas, ix, iy, n, n); g.restore();
+    if (o.sil.f < 1) { g.fillStyle = "#48e0ff"; g.shadowColor = "#48e0ff"; g.shadowBlur = 12 * k; g.fillRect(ix + 2 * k, iy + n * cut - 1 * k, n - 4 * k, 2 * k); g.shadowBlur = 0; }
+    g.font = `600 ${10 * k}px "JetBrains Mono", monospace`; g.fillStyle = "#8890b5"; g.textAlign = "center"; g.fillText(o.sil.label, px + pw / 2, py + pw - 10 * k); g.textAlign = "left";
+  }
+  // big percentage, name, stage line, progress bar
+  const bx = m + 10 * k, by = H - m - 18 * k;
+  g.font = `800 ${58 * k}px "JetBrains Mono", monospace`; g.textBaseline = "alphabetic";
+  const pctTxt = String(o.pct), pw2 = g.measureText(pctTxt).width;
+  let gr = g.createLinearGradient(bx, 0, bx + pw2, 0); gr.addColorStop(0, "#fff"); gr.addColorStop(1, "#48e0ff");
+  g.fillStyle = gr; g.fillText(pctTxt, bx, by);
+  g.font = `800 ${24 * k}px "JetBrains Mono", monospace`; g.fillStyle = "#48e0ff"; g.fillText("%", bx + pw2 + 2 * k, by);
+  const tx0 = bx + pw2 + 40 * k;
+  g.font = `700 ${17 * k}px "Space Grotesk", sans-serif`; g.fillStyle = "#fff"; g.shadowColor = "#000"; g.shadowBlur = 8 * k;
+  g.fillText(o.task, tx0, by - 38 * k); g.shadowBlur = 0;
+  g.font = `500 ${12 * k}px "JetBrains Mono", monospace`; g.fillStyle = "#48e0ff"; g.fillText(o.line, tx0, by - 18 * k);
+  const barW = W - m - 30 * k - tx0;
+  roundRect(g, tx0, by - 4 * k, barW, 6 * k, 3 * k); g.fillStyle = "rgba(255,255,255,.12)"; g.fill();
+  gr = g.createLinearGradient(tx0, 0, tx0 + barW, 0); gr.addColorStop(0, "#48e0ff"); gr.addColorStop(0.55, "#9d7bff"); gr.addColorStop(1, "#ff5fa8");
+  roundRect(g, tx0, by - 4 * k, Math.max(6 * k, barW * o.pct / 100), 6 * k, 3 * k); g.fillStyle = gr; g.shadowColor = "#9d7bff"; g.shadowBlur = 12 * k; g.fill(); g.shadowBlur = 0;
+  g.font = `600 ${10 * k}px "JetBrains Mono", monospace`; g.fillStyle = "rgba(255,255,255,.45)"; g.textAlign = "right";
+  g.fillText("MISSION CONTROL", W - m - 26 * k, by - 18 * k); g.textAlign = "left";
+  return c;
+}
+
+/* ---------- print report: open a history entry ---------- */
+let rp = null;  // {id, data, sil, three}
+const SERIES_COLORS = { nozzle: "#e0498f", bed: "#8a66ef", chamber: "#1f9cc2" };  // validated for the dark surface
+const FEAT_COLORS = { "Outer wall": "#ff9d4d", "Inner wall": "#ffd166", "Overhang wall": "#4d7cff", "Top surface": "#ff5fa8", "Bottom surface": "#9d7bff",
+  "Internal solid infill": "#c45bff", "Sparse infill": "#b0425f", "Bridge": "#5ad1ff", "Support": "#3dffaa", "Support interface": "#2fbf8a",
+  "Brim": "#8890b5", "Skirt": "#8890b5", "Prime tower": "#6b7280", "Other": "#a0a8c8" };
+async function openReport(id) {
+  let d;
+  try { d = await (await fetch(`/api/history/${id}`)).json(); } catch { return; }
+  rp = { id, data: d, view: "3d", hidden: new Set() };
+  const u = new URL(location.href); u.searchParams.set("job", id); history.replaceState(null, "", u);
+  $("report").hidden = false; document.body.style.overflow = "hidden";
+  renderReport();
+  rp.sil = d.has_thumb ? await silhouetteFrom(`/api/history/${id}/thumb.png`) : null;
+  setView(d.has_toolpath || d.result ? "3d" : "photo");
+}
+function closeReport() {
+  $("report").hidden = true; document.body.style.overflow = "";
+  if (rp && rp.three) rp.three.dispose();
+  rp = null;
+  const u = new URL(location.href); u.searchParams.delete("job"); history.replaceState(null, "", u);
+}
+$("rp-close").onclick = closeReport;
+addEventListener("keydown", (e) => { if (e.key === "Escape" && rp) closeReport(); });
+function renderReport() {
+  if (!rp) return;
+  const d = rp.data, cur = d.currency || (histData && histData.currency) || "", res = d.result || "RUN";
+  const end = d.ended || Date.now() / 1000, frac = d.result === "FINISH" ? 1 : (d.pct || 0) / 100;
+  const grams = (d.filaments || []).reduce((a, f) => a + (f.g || 0), 0) * (d.result ? frac : 1);
+  $("rp-title").textContent = d.task || "—";
+  $("rp-res").className = "res " + res; $("rp-res").textContent = t("res" + res) + (d.result && d.result !== "FINISH" ? ` ${d.pct}%` : "");
+  $("rp-sub").textContent = `${d.printer} · ${fmtDate(d.started)}`;
+  const tile = (k, v) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  $("rp-tiles").innerHTML = tile(t("rpStart"), fmtClock(d.started) + (d.start_estimated ? "<small>≈</small>" : "")) + tile(t("rpEnd"), d.ended ? fmtClock(d.ended) : "—")
+    + tile(t("rpDur"), fmtDur((end - d.started) / 60)) + tile(t("rpLayers"), d.layers ? `${d.result === "FINISH" ? d.layers : "—"}<small>/${d.layers}</small>` : "—")
+    + tile(t("rpPlastic"), grams ? `${grams.toFixed(1)}<small> ${t("g")}</small>` : "—") + tile(t("rpEnergy"), d.energy_kwh != null ? `${d.energy_kwh.toFixed(2)}<small> ${t("kwh")}</small>` : "—");
+  const total = d.cost_filament == null && d.cost_energy == null ? null : (d.cost_filament || 0) + (d.cost_energy || 0);
+  $("rp-money").innerHTML = tile(t("rpCostFil"), d.cost_filament == null ? "—" : money(d.cost_filament, cur))
+    + tile(t("rpCostEl"), d.cost_energy == null ? "—" : money(d.cost_energy, cur)) + tile(t("rpTotal"), total == null ? "—" : money(total, cur));
+  $("rp-fils").innerHTML = (d.filaments || []).map((f) => `<div class="fil"><span class="sw" style="background:${esc(f.color)};color:${esc(f.color)}"></span><span>${esc(f.type)}</span><span class="t">${f.m ? f.m.toFixed(2) + " " + t("meters") : ""}</span><span class="g">${f.g ? f.g.toFixed(1) + " " + t("g") : ""}</span></div>`).join("") || "—";
+  const smp = d.samples || [];
+  $("rp-temps").innerHTML = `<h3>${t("rpTemps")}</h3>` + (smp.length > 1 ? lineChart([
+    { name: t("nozzle"), color: SERIES_COLORS.nozzle, pts: smp.map((x) => [x[0], x[1]]) },
+    { name: t("bed"), color: SERIES_COLORS.bed, pts: smp.map((x) => [x[0], x[2]]) },
+    { name: t("chamber"), color: SERIES_COLORS.chamber, pts: smp.map((x) => [x[0], x[3]]) }], "°") : `<div class="empty-h">${t("noSamples")}</div>`);
+  $("rp-prog").innerHTML = `<h3>${t("rpProgress")}</h3>` + (smp.length > 1 ? lineChart([
+    { name: t("rpProgress"), color: "#48e0ff", pts: smp.map((x) => [x[0], x[4]]), area: true }], "%", 0, 100) : `<div class="empty-h">${t("noSamples")}</div>`);
+  $("rp-events").innerHTML = (d.events || []).map((e) => `<li class="${esc(e.kind)}"><time>${new Date(e.t * 1000).toLocaleTimeString(loc())}</time>${esc(tx(e.text))}</li>`).join("") || `<li><time>—</time>${t("quiet")}</li>`;
+  document.querySelectorAll("#rp-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.v === rp.view));
+}
+$("rp-tabs").onclick = (e) => { const b = e.target.closest("button"); if (b && rp) setView(b.dataset.v); };
+async function setView(v) {
+  rp.view = v;
+  document.querySelectorAll("#rp-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+  const box = $("rp-view");
+  box.querySelectorAll("canvas, img.rp-img").forEach((el) => el.remove());
+  if (rp.three) { rp.three.dispose(); rp.three = null; }
+  $("rp-legend").innerHTML = ""; $("rp-layers").hidden = true; $("rp-msg").textContent = "";
+  const d = rp.data;
+  if (v === "photo") {
+    if (!d.has_snapshot) { $("rp-msg").textContent = t("noPhoto"); return; }
+    const img = await loadImage(`/api/history/${d.id}/snapshot.jpg`);
+    if (!img || !rp || rp.view !== "photo") return;
+    const c = await composeShot(img, { tag: `${t("rpFinal")} · CAM-01`, live: false, time: (d.ended || d.started) * 1000,
+      pct: d.result === "FINISH" ? 100 : d.pct || 0, task: d.task || "",
+      line: `${t("res" + (d.result || "RUN")).toUpperCase()}${d.layers ? ` · ${t("layerCaps")} ${d.result === "FINISH" ? d.layers : "—"}/${d.layers}` : ""}`,
+      sil: rp.sil ? { canvas: rp.sil.canvas, box: rp.sil.box, f: d.result === "FINISH" ? 1 : (d.pct || 0) / 100, label: d.layers ? `${t("layerShort")} ${d.layers}/${d.layers}` : "" } : null });
+    rp.shot = c; box.appendChild(c);
+  } else if (v === "plate") {
+    if (!d.has_thumb) { $("rp-msg").textContent = t("noPreview"); return; }
+    const img = document.createElement("img"); img.className = "rp-img"; img.src = `/api/history/${d.id}/thumb.png`;
+    img.style.cssText = "position:absolute;inset:0;width:100%;height:100%;object-fit:contain;padding:30px;";
+    box.appendChild(img);
+  } else {
+    $("rp-msg").textContent = t("loading3d");
+    try { await loadThree(); } catch { $("rp-msg").textContent = t("fail3d"); return; }
+    const r = await fetch(`/api/history/${d.id}/toolpath.bin`);
+    if (!rp || rp.view !== "3d") return;
+    if (!r.ok) { $("rp-msg").textContent = t("no3d"); return; }
+    const tp = parseToolpath(await r.arrayBuffer());
+    if (!rp || rp.view !== "3d") return;
+    $("rp-msg").textContent = "";
+    rp.three = viewToolpath(box, tp);
+  }
+}
+$("rp-dl").onclick = () => {
+  if (!rp) return;
+  const name = `${(rp.data.task || "print").replace(/\.[^.]+$/, "")}`;
+  if (rp.view === "photo" && rp.shot) return saveCanvas(rp.shot, name + "-final.jpg");
+  const c = $("rp-view").querySelector("canvas");
+  if (rp.view === "3d" && rp.three) { rp.three.render(); return saveCanvas(c, name + "-3d.jpg"); }
+  if (rp.view === "plate") { const a = document.createElement("a"); a.href = `/api/history/${rp.id}/thumb.png`; a.download = name + "-plate.png"; a.click(); }
+};
+
+/* multi-series line chart (one axis), legend + direct end labels, crosshair tooltip */
+function lineChart(series, unit, yMin, yMax) {
+  const W = 640, H = 220, pl = 34, pr = 70, pt = 10, pb = 22;
+  const all = series.flatMap((s) => s.pts.filter((p) => p[1] != null));
+  if (!all.length) return "";
+  const t0 = Math.min(...all.map((p) => p[0])), t1 = Math.max(...all.map((p) => p[0])) || t0 + 1;
+  let lo = yMin ?? Math.floor(Math.min(...all.map((p) => p[1])) / 10) * 10, hi = yMax ?? Math.ceil(Math.max(...all.map((p) => p[1])) / 10) * 10;
+  if (hi === lo) hi = lo + 10;
+  const X = (tt) => pl + ((tt - t0) / (t1 - t0 || 1)) * (W - pl - pr), Y = (v) => pt + (1 - (v - lo) / (hi - lo)) * (H - pt - pb);
+  const grid = [lo, (lo + hi) / 2, hi].map((v) => `<line x1="${pl}" x2="${W - pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="rgba(255,255,255,.07)"/><text x="${pl - 6}" y="${Y(v) + 3}" text-anchor="end" fill="#8890b5" font-size="10" font-family="JetBrains Mono">${Math.round(v)}</text>`).join("");
+  const xt = [t0, (t0 + t1) / 2, t1].map((tt, i) => `<text x="${X(tt)}" y="${H - 5}" text-anchor="${["start", "middle", "end"][i]}" fill="#8890b5" font-size="10" font-family="JetBrains Mono">${new Date(tt * 1000).toLocaleTimeString(loc(), { hour: "2-digit", minute: "2-digit" })}</text>`).join("");
+  const paths = series.map((s) => {
+    const pts = s.pts.filter((p) => p[1] != null);
+    if (!pts.length) return "";
+    const d = pts.map((p, i) => `${i ? "L" : "M"}${X(p[0]).toFixed(1)} ${Y(p[1]).toFixed(1)}`).join(" ");
+    const last = pts[pts.length - 1];
+    return (s.area ? `<path d="${d} L${X(last[0])} ${Y(lo)} L${X(pts[0][0])} ${Y(lo)} Z" fill="${s.color}" opacity=".15"/>` : "")
+      + `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round"/>`
+      + `<text x="${X(last[0]) + 6}" y="${Y(last[1]) + 3}" fill="#e8edff" font-size="10" font-family="JetBrains Mono">${esc(s.name)} ${Math.round(last[1])}${unit}</text>`;
+  }).join("");
+  const data = esc(JSON.stringify({ t0, t1, W, pl, pr, series: series.map((s) => ({ n: s.name, c: s.color, p: s.pts })), unit }));
+  const legend = series.length > 1 ? `<div class="legend">${series.map((s) => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join("")}</div>` : "";
+  return `${legend}<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" data-lc="${data}">${grid}${xt}${paths}<line class="xh" y1="${pt}" y2="${H - pb}" x1="-10" x2="-10"/></svg>`;
+}
+document.addEventListener("mousemove", (e) => {
+  const svg = e.target.closest && e.target.closest("svg[data-lc]");
+  document.querySelectorAll(".lc .tip").forEach((x) => { if (!svg || !svg.parentNode.contains(x)) x.remove(); });
+  if (!svg) return;
+  const o = JSON.parse(svg.dataset.lc), r = svg.getBoundingClientRect();
+  const vx = ((e.clientX - r.left) / r.width) * o.W;
+  const tt = o.t0 + ((vx - o.pl) / (o.W - o.pl - o.pr)) * (o.t1 - o.t0);
+  if (tt < o.t0 || tt > o.t1) return;
+  const xh = svg.querySelector(".xh"); xh.setAttribute("x1", vx); xh.setAttribute("x2", vx);
+  const rows = o.series.map((s) => {
+    let best = null; for (const p of s.p) if (p[1] != null && (!best || Math.abs(p[0] - tt) < Math.abs(best[0] - tt))) best = p;
+    return best ? `<span style="color:${s.c}">■</span> ${esc(s.n)}: ${Math.round(best[1])}${o.unit}` : "";
+  }).filter(Boolean);
+  const box = svg.parentNode;
+  let tip = box.querySelector(".tip"); if (!tip) { tip = document.createElement("div"); tip.className = "tip"; box.appendChild(tip); }
+  const br = box.getBoundingClientRect();
+  tip.innerHTML = `${new Date(tt * 1000).toLocaleTimeString(loc(), { hour: "2-digit", minute: "2-digit" })}<br>${rows.join("<br>")}`;
+  tip.style.left = e.clientX - br.left + "px"; tip.style.top = e.clientY - br.top + "px";
+});
+
+/* 3D toolpath preview (three.js, loaded on first use) */
+function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
+async function loadThree() {
+  if (window.THREE && THREE.OrbitControls) return;
+  await loadScript("https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js");
+  await loadScript("https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js");
+}
+function parseToolpath(buf) {
+  const dv = new DataView(buf);
+  if (String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2)) !== "TP1") throw new Error("bad toolpath");
+  const lo = [0, 1, 2].map((i) => dv.getFloat32(4 + i * 4, true)), hi = [0, 1, 2].map((i) => dv.getFloat32(16 + i * 4, true));
+  const nlayers = dv.getUint32(28, true), nf = dv.getUint8(32);
+  let off = 33;
+  const feats = [];
+  for (let i = 0; i < nf; i++) {
+    const len = dv.getUint8(off); off += 1;
+    const name = new TextDecoder().decode(new Uint8Array(buf, off, len)); off += len;
+    const n = dv.getUint32(off, true); off += 4;
+    const q = new Uint16Array(buf.slice(off, off + n * 12)); off += n * 12;
+    const layers = new Uint16Array(buf.slice(off, off + n * 2)); off += n * 2;
+    feats.push({ name, n, q, layers });
+  }
+  return { lo, hi, nlayers, feats };
+}
+function viewToolpath(box, tp) {
+  const w = box.clientWidth, h = box.clientHeight;
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2)); renderer.setSize(w, h);
+  box.insertBefore(renderer.domElement, box.firstChild);
+  const scene = new THREE.Scene();
+  const span = [0, 1, 2].map((i) => tp.hi[i] - tp.lo[i]), c = [0, 1, 2].map((i) => (tp.hi[i] + tp.lo[i]) / 2);
+  const size = Math.max(span[0], span[1], span[2] * 2, 20);
+  const camera = new THREE.PerspectiveCamera(40, w / h, 0.5, size * 20);
+  camera.position.set(size * 0.75, size * 0.7, size * 0.95);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, span[2] * 0.3, 0); controls.enableDamping = true; controls.autoRotate = true; controls.autoRotateSpeed = 0.6;
+  // build plate grid at z=0
+  const grid = new THREE.GridHelper(Math.ceil(Math.max(span[0], span[1]) / 10) * 10 + 20, 20, 0x48e0ff, 0x223055);
+  grid.material.opacity = 0.35; grid.material.transparent = true; grid.position.y = -tp.lo[2]; scene.add(grid);
+  const groups = [];
+  for (const f of tp.feats) {
+    const pos = new Float32Array(f.n * 6);
+    for (let i = 0; i < f.n * 6; i += 3) {
+      const x = tp.lo[0] + (f.q[i] / 65535) * span[0], y = tp.lo[1] + (f.q[i + 1] / 65535) * span[1], z = tp.lo[2] + (f.q[i + 2] / 65535) * span[2];
+      pos[i] = x - c[0]; pos[i + 1] = z - tp.lo[2]; pos[i + 2] = -(y - c[1]);  // G-code Z up -> three.js Y up
+    }
+    const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    const line = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: FEAT_COLORS[f.name] || "#a0a8c8", transparent: true, opacity: 0.9 }));
+    scene.add(line); groups.push({ f, line, geo });
+  }
+  // feature legend toggles
+  $("rp-legend").innerHTML = tp.feats.map((f) => `<button data-f="${esc(f.name)}"><i style="background:${FEAT_COLORS[f.name] || "#a0a8c8"}"></i>${esc((I18N[lang].feat || {})[f.name] || f.name)}</button>`).join("");
+  $("rp-legend").onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    const g = groups.find((x) => x.f.name === b.dataset.f); g.line.visible = !g.line.visible; b.classList.toggle("off", !g.line.visible);
+  };
+  // layer scrubber: segments are in print order within a feature, so a draw range is "printed up to layer N"
+  const slider = $("rp-layer"); slider.max = tp.nlayers; slider.value = tp.nlayers; $("rp-layers").hidden = false;
+  const upTo = (arr, n) => { let a = 0, b = arr.length; while (a < b) { const m = (a + b) >> 1; if (arr[m] <= n) a = m + 1; else b = m; } return a; };
+  const setLayer = (n) => { for (const g of groups) g.geo.setDrawRange(0, upTo(g.f.layers, n - 1) * 2); $("rp-layer-v").textContent = `${n}/${tp.nlayers}`; };
+  slider.oninput = () => { controls.autoRotate = false; setLayer(+slider.value); };
+  setLayer(tp.nlayers);
+  let alive = true;
+  const onResize = () => { const W2 = box.clientWidth, H2 = box.clientHeight; renderer.setSize(W2, H2); camera.aspect = W2 / H2; camera.updateProjectionMatrix(); };
+  addEventListener("resize", onResize);
+  renderer.domElement.addEventListener("pointerdown", () => (controls.autoRotate = false));
+  const loop = () => { if (!alive) return; controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); };
+  loop();
+  return {
+    render: () => renderer.render(scene, camera),
+    dispose: () => { alive = false; removeEventListener("resize", onResize); groups.forEach((g) => { g.geo.dispose(); g.line.material.dispose(); }); renderer.dispose(); renderer.domElement.remove(); },
+  };
+}
+
 /* ---------- wiring ---------- */
 applyStatic();
 renderSound(); renderNotify(); loadSession(); loadHistory();
+{ const j = new URLSearchParams(location.search).get("job"); if (j) openReport(+j); }
 buildGauges();
 $("lang").onclick = (e) => {
   const b = e.target.closest("button");
@@ -1505,7 +1871,21 @@ startCam();
 document.addEventListener("visibilitychange", () => { if (document.hidden) stopCam(); else startCam(); });
 
 $("fs").onclick = () => { const v = $("view"); document.fullscreenElement ? document.exitFullscreen() : v.requestFullscreen ? v.requestFullscreen() : v.webkitRequestFullscreen ? v.webkitRequestFullscreen() : vid.webkitEnterFullscreen && vid.webkitEnterFullscreen(); };
-$("snap").onclick = () => { const a = document.createElement("a"); a.href = pq("/snapshot.jpg?t=" + Date.now()); a.download = `${(S && S.name) || "printer"}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.jpg`; a.click(); };
+$("snap").onclick = async () => {
+  // A finished-looking frame: the current picture plus the dashboard HUD, at the camera's own resolution.
+  let src = null;
+  if (camMode === "h264" && vid.videoWidth) src = vid;
+  else if (cam.naturalWidth) src = cam;
+  else src = await loadImage(pq("/snapshot.jpg?t=" + Date.now()));
+  if (!src || !S) return;
+  const f = S.layers ? Math.min(S.layer / S.layers, 1) : 0;
+  const canvas = await composeShot(src, {
+    tag: "LIVE · CAM-01", live: true, pct: S.pct, task: S.task || S.name,
+    line: `${tx(S.stage).toUpperCase()}${S.layers ? ` · ${t("layerCaps")} ${S.layer}/${S.layers}` : ""}`,
+    sil: pipOn && pipSil ? { canvas: pipSil, box: pipBox, f, label: `${t("layerShort")} ${S.layer}/${S.layers}` } : null,
+  });
+  saveCanvas(canvas, `${S.name}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.jpg`);
+};
 $("b-light").onclick = () => cmd("light", { on: !(S && S.light) });
 $("b-pause").onclick = (e) => cmd(e.currentTarget.dataset.act || "pause");
 $("speeds").onclick = (e) => { const b = e.target.closest("button"); if (b && !b.disabled) cmd("speed", { level: +b.dataset.l }); };
