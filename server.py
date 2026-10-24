@@ -16,6 +16,7 @@ import queue
 import re
 import socket
 import ssl
+import struct
 import subprocess
 import tempfile
 import threading
@@ -393,6 +394,7 @@ def apply_cfg(new):
     save_cfg(cfg)
     reset_state()
     camera.restart()
+    h264.restart()
     log_event("link", L(f"Настройки сохранены: {cfg['name']} ({cfg['host']})",
                         f"Settings saved: {cfg['name']} ({cfg['host']})"))
     cfg_changed.set()
@@ -519,14 +521,18 @@ def fetch_job():
         dirty.set()
 
 
-# ---------- camera: one shared ffmpeg, fan-out MJPEG ----------
+# ---------- camera: one shared ffmpeg per format, fanned out to all viewers ----------
 
 class Camera:
+    """MJPEG re-encode: works in every browser, used as the fallback and for snapshots."""
+
     def __init__(self):
         self.cond = threading.Condition()
         self.frame, self.frame_t = None, 0.0
         self.clients, self.proc, self.idle_since, self.started_at = 0, None, time.time(), 0.0
         threading.Thread(target=self._watch, daemon=True).start()
+
+    out_args = ["-an", "-vf", "scale=1280:-2,fps=15", "-q:v", "6", "-f", "mjpeg", "pipe:1"]
 
     def restart(self):
         """Drop the stream so the watcher reopens it with the current settings."""
@@ -537,10 +543,8 @@ class Camera:
         if not configured():
             return
         self.started_at = time.time()
-        self.proc = subprocess.Popen(
-            [FFMPEG, *FF_IN, "-i", rtsp_url(),
-             "-an", "-vf", "scale=1280:-2,fps=15", "-q:v", "6", "-f", "mjpeg", "pipe:1"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+        self.proc = subprocess.Popen([FFMPEG, *FF_IN, "-i", rtsp_url(), *self.out_args],
+                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
         threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
 
     def _read(self, proc):
@@ -601,7 +605,79 @@ class Camera:
         return r.stdout or None
 
 
+def _read_exact(f, n):
+    out = b""
+    while len(out) < n:
+        chunk = f.read(n - len(out))
+        if not chunk:
+            return None
+        out += chunk
+    return out
+
+
+class H264Camera(Camera):
+    """The printer's own H.264 (1680x1080, 30 fps, ~260 KB/s) remuxed to fragmented MP4, no re-encode.
+
+    The camera sends a keyframe every second and frag_keyframe cuts one fragment per keyframe,
+    so every fragment is a valid starting point: a new viewer gets the init segment plus the
+    latest fragment and sees video within about a second.
+    """
+
+    out_args = ["-an", "-c:v", "copy", "-f", "mp4",
+                "-movflags", "frag_keyframe+empty_moov+default_base_moof", "pipe:1"]
+
+    def __init__(self):
+        self.init, self.codec, self.seq = None, None, 0
+        super().__init__()
+
+    def restart(self):
+        super().restart()
+        self.init = None
+
+    def _read(self, proc):
+        init, moof = b"", None
+        while True:
+            hdr = _read_exact(proc.stdout, 8)
+            if hdr is None:
+                break
+            size, kind = struct.unpack(">I4s", hdr)
+            if size == 1:
+                ext = _read_exact(proc.stdout, 8)
+                if ext is None:
+                    break
+                hdr += ext
+                size = struct.unpack(">Q", ext)[0]
+            body = _read_exact(proc.stdout, size - len(hdr)) if size > len(hdr) else b""
+            if body is None:
+                break
+            box = hdr + body
+            if kind in (b"ftyp", b"moov"):
+                init += box
+                if kind == b"moov":
+                    with self.cond:
+                        self.init, self.codec = init, _avc_codec(box)
+            elif kind == b"moof":
+                moof = box
+            elif kind == b"mdat" and moof is not None:
+                with self.cond:
+                    self.frame, self.frame_t, self.seq = moof + box, time.time(), self.seq + 1
+                    self.cond.notify_all()
+                moof = None
+
+    def snapshot(self):
+        raise NotImplementedError
+
+
+def _avc_codec(moov):
+    """RFC 6381 codec string (e.g. avc1.640029) from the avcC box, needed by Media Source Extensions."""
+    i = moov.find(b"avcC")
+    if i < 0 or len(moov) < i + 8:
+        return "avc1.640029"
+    return "avc1." + moov[i + 5:i + 8].hex()
+
+
 camera = Camera()
+h264 = H264Camera()
 
 # ---------- setup: discovery and connection test ----------
 
@@ -780,6 +856,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"printers": discover(), "subnets": [str(n) for n in local_subnets()]})
         if path == "/events":
             return self._sse()
+        if path == "/video.mp4":
+            return self._fmp4()
         if path == "/stream.mjpg":
             return self._mjpeg()
         if path == "/snapshot.jpg":
@@ -886,6 +964,36 @@ class Handler(BaseHTTPRequestHandler):
             pass
         finally:
             sse_clients.remove(q)
+
+    def _fmp4(self):
+        h264.acquire()
+        try:
+            with h264.cond:
+                h264.cond.wait_for(lambda: h264.init is not None and h264.frame is not None, timeout=20)
+                init, codec, frag, seq = h264.init, h264.codec, h264.frame, h264.seq
+            if init is None or frag is None:
+                return self._send(503, b"camera not ready", "text/plain")
+            self.send_response(200)
+            self.send_header("Content-Type", "video/mp4")
+            self.send_header("X-Codec", codec)
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(init + frag)
+            while True:
+                with h264.cond:
+                    h264.cond.wait_for(lambda: h264.seq != seq or h264.init is not init, timeout=10)
+                    if h264.init is not init:
+                        break  # ffmpeg restarted: new init segment, let the page reconnect
+                    if h264.seq == seq:
+                        continue
+                    frag, seq = h264.frame, h264.seq
+                # A slow viewer simply skips to the newest fragment; each one starts on a keyframe.
+                self.wfile.write(frag)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, socket.timeout):
+            pass
+        finally:
+            h264.release()
 
     def _mjpeg(self):
         self.send_response(200)

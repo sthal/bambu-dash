@@ -89,7 +89,7 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
 /* camera */
 .cam { padding: 0; aspect-ratio: auto; min-height: 420px; display: flex; flex-direction: column; }
 .cam .view { position: relative; flex: 1; background: #000 center/cover no-repeat; min-height: 380px; }
-.cam img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cam img, .cam video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
 .cam .placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font: 500 13px var(--mono); letter-spacing: .1em; }
 .hud { position: absolute; inset: 0; pointer-events: none; }
 .hud .corner { position: absolute; width: 34px; height: 34px; border: 2px solid rgba(72,224,255,.7); filter: drop-shadow(0 0 6px var(--cyan)); }
@@ -318,12 +318,13 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
     <section class="card cam span-8 row-2">
       <div class="view" id="view">
         <div class="placeholder" id="cam-ph" data-i18n="camConnecting">ПОДКЛЮЧЕНИЕ К КАМЕРЕ…</div>
-        <img id="cam" alt="" data-i18n-alt="camAlt">
+        <img id="cam" alt="" data-i18n-alt="camAlt" hidden>
+        <video id="vid" muted playsinline autoplay disableremoteplayback hidden></video>
         <div class="hud">
           <div class="scan"></div><div class="sweep"></div>
           <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
           <div class="tag"><span class="rec"></span>LIVE · CAM-01</div>
-          <div class="fps" id="cam-res">— · 15 FPS</div>
+          <div class="fps" id="cam-res">—</div>
           <div class="bottom">
             <div class="big" id="hud-pct">0<small>%</small></div>
             <div class="task">
@@ -775,14 +776,90 @@ function connect() {
 }
 connect();
 
-const cam = $("cam");
-function startCam() { cam.src = "/stream.mjpg?t=" + Date.now(); }
-cam.onload = () => { $("cam-ph").hidden = true; $("cam-res").textContent = `${cam.naturalWidth}×${cam.naturalHeight} · 15 FPS`; };
-cam.onerror = () => { $("cam-ph").hidden = false; $("cam-ph").textContent = t("camRetry"); setTimeout(startCam, 4000); };
-startCam();
-document.addEventListener("visibilitychange", () => { if (document.hidden) cam.src = ""; else startCam(); });
+/* ---------- camera ----------
+   Preferred: the printer's own H.264 (full 1680x1080, 30 fps) via Media Source Extensions.
+   Fallback: MJPEG <img> (15 fps, 1280 wide) for browsers without MSE (e.g. iOS < 17.1). */
+const cam = $("cam"), vid = $("vid");
+const MS = window.ManagedMediaSource || window.MediaSource;
+let camMode = null, camGen = 0, h264Fails = 0, fpsCount = 0;
 
-$("fs").onclick = () => { const v = $("view"); document.fullscreenElement ? document.exitFullscreen() : (v.requestFullscreen || v.webkitRequestFullscreen).call(v); };
+function camLabel(w, h, fps, kind) { $("cam-res").textContent = w ? `${w}×${h} · ${fps} FPS · ${kind}` : "—"; }
+function camRetryLater(fn) { $("cam-ph").hidden = false; $("cam-ph").textContent = t("camRetry"); setTimeout(fn, 3000); }
+
+function startMjpeg() {
+  camMode = "mjpeg"; vid.hidden = true; cam.hidden = false;
+  cam.src = "/stream.mjpg?t=" + Date.now();
+}
+cam.onload = () => { $("cam-ph").hidden = true; camLabel(cam.naturalWidth, cam.naturalHeight, 15, "MJPEG"); };
+cam.onerror = () => { if (camMode === "mjpeg" && !document.hidden) camRetryLater(startMjpeg); };
+
+async function startH264() {
+  const gen = ++camGen;
+  camMode = "h264"; cam.hidden = true; cam.removeAttribute("src");
+  const ctrl = new AbortController();
+  stopCam.abort = () => ctrl.abort();
+  try {
+    const res = await fetch("/video.mp4?t=" + Date.now(), { signal: ctrl.signal });
+    const mime = `video/mp4; codecs="${res.headers.get("X-Codec") || "avc1.640029"}"`;
+    if (!res.ok || !MS.isTypeSupported(mime)) throw new Error("unsupported " + res.status);
+    const ms = new MS();
+    vid.src = URL.createObjectURL(ms);
+    await new Promise((r) => ms.addEventListener("sourceopen", r, { once: true }));
+    const sb = ms.addSourceBuffer(mime);
+    sb.mode = "sequence"; // the server may skip fragments for slow viewers; keep the timeline gapless
+    const queue = [];
+    const pump = () => {
+      if (sb.updating || gen !== camGen) return;
+      const b = vid.buffered;
+      if (b.length) {
+        const end = b.end(b.length - 1);
+        if (end - vid.currentTime > 2.5) vid.currentTime = end - 0.4; // stay at the live edge
+        if (vid.currentTime - b.start(0) > 30) { sb.remove(b.start(0), vid.currentTime - 10); return; }
+      }
+      if (queue.length) sb.appendBuffer(queue.shift());
+    };
+    sb.addEventListener("updateend", pump);
+    vid.hidden = false;
+    vid.play().catch(() => {});
+    const reader = res.body.getReader();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done || gen !== camGen) break;
+      queue.push(value);
+      pump();
+      if (!vid.paused && vid.readyState >= 2) { $("cam-ph").hidden = true; h264Fails = 0; }
+    }
+    if (gen === camGen && !document.hidden) camRetryLater(startH264); // server dropped us (e.g. ffmpeg restart)
+  } catch (err) {
+    if (gen !== camGen || err.name === "AbortError") return;
+    console.warn("H.264 camera:", err);
+    // Two strikes and this browser gets the MJPEG fallback for the session.
+    if (++h264Fails >= 2) startMjpeg(); else camRetryLater(startH264);
+  }
+}
+
+function stopCam() {
+  camGen++;
+  if (stopCam.abort) stopCam.abort();
+  cam.removeAttribute("src");
+  vid.removeAttribute("src"); vid.load();
+}
+function startCam() { (MS && h264Fails < 2 ? startH264 : startMjpeg)(); }
+
+// Real frame rate for the HUD label (only where the browser can count decoded frames).
+if (vid.requestVideoFrameCallback) {
+  const onFrame = () => { fpsCount++; vid.requestVideoFrameCallback(onFrame); };
+  vid.requestVideoFrameCallback(onFrame);
+}
+setInterval(() => {
+  if (camMode === "h264" && !vid.hidden && vid.videoWidth) camLabel(vid.videoWidth, vid.videoHeight, vid.requestVideoFrameCallback ? fpsCount : 30, "H.264");
+  fpsCount = 0;
+}, 1000);
+
+startCam();
+document.addEventListener("visibilitychange", () => { if (document.hidden) stopCam(); else startCam(); });
+
+$("fs").onclick = () => { const v = $("view"); document.fullscreenElement ? document.exitFullscreen() : v.requestFullscreen ? v.requestFullscreen() : v.webkitRequestFullscreen ? v.webkitRequestFullscreen() : vid.webkitEnterFullscreen && vid.webkitEnterFullscreen(); };
 $("snap").onclick = () => { const a = document.createElement("a"); a.href = "/snapshot.jpg?t=" + Date.now(); a.download = `h2s-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.jpg`; a.click(); };
 $("b-light").onclick = () => cmd("light", { on: !(S && S.light) });
 $("b-pause").onclick = (e) => cmd(e.currentTarget.dataset.act || "pause");
