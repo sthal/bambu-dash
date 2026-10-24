@@ -31,6 +31,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import paho.mqtt.client as mqtt
 
+from history import DEFAULT_COSTS, History, job_costs
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 CFG_PATH = os.path.join(BASE, "config.json")
 DEFAULTS = {"host": "", "serial": "", "access_code": "", "name": "Bambu", "port": 8790,
@@ -40,9 +42,11 @@ DEFAULTS = {"host": "", "serial": "", "access_code": "", "name": "Bambu", "port"
 def load_cfg():
     try:
         with open(CFG_PATH) as f:
-            return {**DEFAULTS, **json.load(f)}
+            c = {**DEFAULTS, **json.load(f)}
+        c["costs"] = {**DEFAULT_COSTS, **(c.get("costs") or {})}
+        return c
     except FileNotFoundError:
-        return dict(DEFAULTS)
+        return {**DEFAULTS, "costs": dict(DEFAULT_COSTS)}
 
 
 def save_cfg(c):
@@ -55,6 +59,8 @@ def save_cfg(c):
 
 
 cfg = load_cfg()
+hist_db = History(os.path.join(BASE, "state", "history.sqlite"))
+ACTIVE = ("PREPARE", "RUNNING", "PAUSE")
 
 try:
     with open(os.path.join(BASE, "data", "hms.json"), encoding="utf-8") as _f:
@@ -358,10 +364,132 @@ def build_view():
                    "hms": [{"code": c, "text": hms_text(c)} for c in hms]},
         "job": {"started_at": job.get("started_at"), "thumb": bool(job.get("thumb")),
                 "thumb_v": job.get("fetched_for") or "", "weight_g": meta.get("weight"),
-                "prediction_s": meta.get("prediction"), "filaments": meta.get("filaments") or []},
+                "prediction_s": meta.get("prediction"), "filaments": meta.get("filaments") or [],
+                "cost": live_costs(meta) if state in ACTIVE or state == "FINISH" else None,
+                "forecast": spool_forecast(meta, units) if state in ACTIVE else []},
         "hist": list(hist)[-240:],
         "events": list(events)[:40],
     }
+
+
+def _job_key():
+    return f"{raw.get('subtask_id') or raw.get('subtask_name')}#{raw.get('plate_idx')}"
+
+
+def _elapsed_guess():
+    """Seconds since the print started, when we did not see it start (server launched mid-print)."""
+    meta, rem = job.get("meta") or {}, _num(raw.get("mc_remaining_time"))
+    if meta.get("prediction") and rem is not None:
+        return max(0.0, meta["prediction"] - rem * 60)
+    return 0.0
+
+
+def track_job():
+    """Opens/closes the history record for the current print. Called under lock."""
+    p, state = raw, raw.get("gcode_state")
+    if not p.get("subtask_name") or not cfg["serial"]:
+        return
+    key = _job_key()
+    if state in ACTIVE and job.get("db_key") != key:
+        jid = hist_db.open_job(cfg["serial"], key)
+        if jid:  # server restarted during this print: continue the same record
+            job["started_at"] = hist_db.get(jid)["started"]
+        else:
+            seen_start = prev.get("seen_start") == key
+            started = job.get("started_at") if seen_start and job.get("started_at") else time.time() - _elapsed_guess()
+            jid = hist_db.start(cfg["serial"], key, p.get("subtask_name"), p.get("plate_idx"), started, not seen_start)
+            job["started_at"] = started
+        job.update(db_id=jid, db_key=key)
+        remember_meta()
+    elif state in ("FINISH", "FAILED", "IDLE") and job.get("db_id"):
+        finish_job(job["db_id"], {"FINISH": "FINISH", "FAILED": "FAILED"}.get(state, "CANCELLED"))
+        job.update(db_id=None, db_key=None)
+    elif state in ("FINISH", "FAILED") and not job.get("db_id"):
+        jid = hist_db.open_job(cfg["serial"], key)  # finished while the server was down
+        if jid:
+            finish_job(jid, state)
+
+
+def remember_meta():
+    """Copy slicer info and the plate render into the open history record once both are known."""
+    jid, meta = job.get("db_id"), job.get("meta")
+    if not jid or not meta or job.get("meta_saved") == jid:
+        return
+    fields = {"prediction_s": meta.get("prediction"), "weight_g": meta.get("weight"),
+              "filaments": meta.get("filaments") or [], "layers": int(_num(raw.get("total_layer_num"), 0) or 0)}
+    if job.get("thumb"):
+        fields["thumb"] = job["thumb"]
+    rec = hist_db.get(jid)
+    if rec and rec["start_estimated"]:
+        fields["started"] = time.time() - _elapsed_guess()
+        job["started_at"] = fields["started"]
+    hist_db.update(jid, **fields)
+    job["meta_saved"] = jid
+
+
+def finish_job(jid, result):
+    rec = hist_db.get(jid)
+    if not rec:
+        return
+    ended = time.time()
+    pct = 100 if result == "FINISH" else int(_num(raw.get("mc_percent"), 0) or 0)
+    filaments = json.loads(rec["filaments"] or "[]")
+    fil, kwh, cost_e = job_costs(cfg["costs"], filaments, pct / 100, rec["started"], ended)
+    hist_db.update(jid, ended=ended, result=result, pct=pct, energy_kwh=kwh, cost_filament=fil,
+                   cost_energy=cost_e, currency=cfg["costs"].get("currency"))
+    log_event("job", L(f"Записано в историю: {rec['task']}", f"Saved to history: {rec['task']}"))
+
+    def grab():  # the final photo; ffmpeg can take a few seconds, so off the MQTT thread
+        try:
+            img = camera.snapshot()
+            if img:
+                hist_db.update(jid, snapshot=img)
+        except Exception:  # noqa: BLE001 - a missing photo must not break anything
+            pass
+    threading.Thread(target=grab, daemon=True).start()
+
+
+def live_costs(meta):
+    """Estimated cost of the whole current print, for the payload card."""
+    if not meta or not job.get("started_at"):
+        return None
+    pred = meta.get("prediction") or 0
+    fil, kwh, cost_e = job_costs(cfg["costs"], meta.get("filaments") or [], 1.0,
+                                 job["started_at"], job["started_at"] + pred)
+    if fil is None and cost_e is None:
+        return {"known": False, "currency": cfg["costs"].get("currency")}
+    return {"known": True, "filament": fil, "energy": cost_e, "kwh": kwh,
+            "total": round((fil or 0) + (cost_e or 0), 2), "currency": cfg["costs"].get("currency")}
+
+
+def spool_forecast(meta, units):
+    """Will the loaded spools last? Per filament of the current print: grams left vs grams still needed."""
+    if not meta or not meta.get("filaments"):
+        return []
+    trays = {}
+    for u in raw.get("ams", {}).get("ams") or []:
+        for t in u.get("tray") or []:
+            trays[(int(u.get("id", 0)), int(t.get("id", 0)))] = t
+    mapping = raw.get("mapping") or []
+    done = (_num(raw.get("mc_percent"), 0) or 0) / 100
+    out = []
+    for f in meta["filaments"]:
+        idx = (f.get("id") or 0) - 1
+        v = mapping[idx] if 0 <= idx < len(mapping) else None
+        if v is None or v == 0xFFFF:
+            continue
+        slot = (v >> 8, v & 0xFF) if v >= 256 else (v // 4, v % 4)  # H2: (ams<<8)|slot; older: ams*4+slot
+        t = trays.get(slot)
+        if not t:
+            continue
+        need = round((f.get("g") or 0) * (1 - done), 1)
+        remain = t.get("remain") if isinstance(t.get("remain"), int) else -1
+        spool_g = _num(t.get("tray_weight"), 0) or 1000  # Bambu spools are 1 kg unless the RFID says otherwise
+        left = round(spool_g * remain / 100, 0) if remain >= 0 else None
+        status = "unknown" if left is None else "ok" if left >= need * 1.1 else "short"
+        out.append({"type": f.get("type"), "color": f.get("color"), "need_g": need, "left_g": left,
+                    "status": status, "ams": "AMS HT" if slot[0] >= 128 else f"AMS {slot[0] + 1}", "slot": slot[1] + 1})
+    return out
 
 
 def track_transitions():
@@ -370,6 +498,8 @@ def track_transitions():
     state = p.get("gcode_state")
     key = (p.get("subtask_id") or p.get("subtask_name"), p.get("plate_idx"))
     if state and state != prev["state"]:
+        if state in ("PREPARE", "RUNNING") and prev["state"] is not None and prev["state"] not in ACTIVE:
+            prev["seen_start"] = _job_key()
         if prev["state"] is not None:
             a, b = state_name(prev["state"]), state_name(state)
             log_event("state", L(f"{a['ru']} → {b['ru']}", f"{a['en']} → {b['en']}"))
@@ -398,6 +528,7 @@ def track_transitions():
             txt = hms_text(code) or L("", "")
             log_event("error", L(f"HMS {code}. {txt['ru']}".strip(" ."), f"HMS {code}. {txt['en']}".strip(" .")))
         prev["hms"] = hms
+    track_job()
 
 
 # ---------- MQTT ----------
@@ -460,8 +591,9 @@ def reset_state():
     with lock:
         raw.clear()
         hist.clear()
-        job.update(key=None, started_at=None, thumb=None, meta=None, fetched_for=None, fetch_err_at=0)
-        prev.update(state=None, stage=None, err=None, hms=())
+        job.update(key=None, started_at=None, thumb=None, meta=None, fetched_for=None, fetch_err_at=0,
+                   db_id=None, db_key=None, meta_saved=None)
+        prev.update(state=None, stage=None, err=None, hms=(), seen_start=None)
         last_msg = 0.0
     dirty.set()
 
@@ -588,11 +720,12 @@ def fetch_job():
                 if str(md.get("index", "1")) != str(plate):
                     continue
                 meta = {"prediction": _num(md.get("prediction")), "weight": _num(md.get("weight")),
-                        "filaments": [{"type": fl.get("type"), "color": fl.get("color"),
+                        "filaments": [{"id": int(_num(fl.get("id"), 0) or 0), "type": fl.get("type"), "color": fl.get("color"),
                                        "g": _num(fl.get("used_g")), "m": _num(fl.get("used_m"))}
                                       for fl in pl.findall("filament")]}
         with lock:
             job.update(thumb=thumb, meta=meta, fetched_for=key)
+            remember_meta()
         kb = len(buf.getvalue()) // 1024
         log_event("job", L(f"Загружено превью модели ({kb} КБ .3mf)", f"Model preview loaded ({kb} KB .3mf)"))
     except Exception as e:  # noqa: BLE001 - printer FTP is flaky, never let it kill the thread
@@ -939,6 +1072,36 @@ def token_ok(tok):
         return False
 
 
+def parse_costs(c):
+    """Validate the cost settings form; empty fields mean "not set"."""
+    if not isinstance(c, dict):
+        return None, "costs"
+
+    def price(v):
+        if v in (None, ""):
+            return None
+        v = _num(v)
+        if v is None or not 0 <= v <= 100000:
+            raise ValueError
+        return v
+    try:
+        out = {"currency": str(c.get("currency") or "€").strip()[:4] or "€",
+               "default_kg": price(c.get("default_kg")), "power_w": price(c.get("power_w")),
+               "day_price": price(c.get("day_price")), "night_price": price(c.get("night_price")),
+               "filament": {}}
+        for k, v in (c.get("filament") or {}).items():
+            if re.match(r"^[A-Z0-9+-]{1,12}$", str(k).upper()) and price(v) is not None:
+                out["filament"][str(k).upper()] = price(v)
+        for k in ("night_from", "night_to"):
+            v = str(c.get(k) or DEFAULT_COSTS[k])
+            if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", v):
+                raise ValueError
+            out[k] = v
+    except ValueError:
+        return None, "costs"
+    return out, None
+
+
 STATIC_TYPES = {".png": "image/png", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json",
                 ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
 
@@ -1007,12 +1170,24 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"required": auth_required(), "authed": self._authed()})
         if path in ("/api/config", "/api/discover") and not self._authed():
             return self._deny()
+        if path == "/api/history":
+            return self._json(200, {"jobs": hist_db.recent(100, cfg["serial"] or None), "currency": cfg["costs"].get("currency")})
+        if path == "/api/stats":
+            q = dict(x.split("=", 1) for x in (self.path.split("?", 1)[1:] or [""])[0].split("&") if "=" in x)
+            days = int(q["days"]) if q.get("days", "").isdigit() else None
+            return self._json(200, {**hist_db.stats(days, cfg["serial"] or None), "currency": cfg["costs"].get("currency")})
+        m = re.match(r"^/api/history/(\d+)/(snapshot\.jpg|thumb\.png)$", path)
+        if m:
+            data = hist_db.blob(int(m.group(1)), "snapshot" if m.group(2).startswith("snap") else "thumb")
+            if not data:
+                return self._send(404, b"", "text/plain")
+            return self._send(200, data, "image/jpeg" if m.group(2).endswith("jpg") else "image/png", cache="max-age=86400")
         if path == "/api/config":
             # Never hand the access code back out, only whether one is stored.
             return self._json(200, {"host": cfg["host"], "serial": cfg["serial"], "name": cfg["name"],
                                     "port": cfg["port"], "running_port": PORT,
                                     "has_code": bool(cfg["access_code"]), "configured": configured(),
-                                    "has_password": auth_required()})
+                                    "has_password": auth_required(), "costs": cfg["costs"]})
         if path == "/api/discover":
             return self._json(200, {"printers": discover(), "subnets": [str(n) for n in local_subnets()]})
         if path == "/events":
@@ -1041,8 +1216,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._login(a)
         if self.path == "/api/logout":
             return self._send(200, b'{"ok":true}', "application/json", headers=[self._session_cookie("", 0)])
-        if self.path in ("/api/cmd", "/api/test", "/api/config") and not self._authed():
+        if self.path in ("/api/cmd", "/api/test", "/api/config", "/api/history/delete") and not self._authed():
             return self._deny()
+        if self.path == "/api/history/delete":
+            hist_db.delete(int(_num(a.get("id"), 0) or 0))
+            return self._json(200, {"ok": True})
         if self.path == "/api/cmd":
             return self._cmd(a)
         if self.path == "/api/test":
@@ -1092,6 +1270,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {"ok": False, "error": "port"})
         name = (str(a.get("name") or "").strip() or "Bambu")[:40]
         new = {"host": host, "serial": serial, "access_code": code, "name": name, "port": port}
+        if "costs" in a:
+            costs, err = parse_costs(a["costs"])
+            if err:
+                return self._json(400, {"ok": False, "error": err})
+            new["costs"] = costs
         headers = []
         pw = str(a.get("new_password") or "")
         if pw:

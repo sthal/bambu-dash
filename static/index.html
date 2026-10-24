@@ -171,6 +171,57 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
 .model .details { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .model .title { font-weight: 700; font-size: 16px; overflow-wrap: anywhere; }
 .fil-list { display: flex; flex-direction: column; gap: 7px; }
+.money { font: 500 12px var(--mono); color: var(--dim); display: grid; gap: 5px; }
+.money b { color: var(--text); font-weight: 600; }
+.money .total { font: 700 18px var(--mono); color: var(--text); }
+.fc { font: 500 11px var(--mono); color: var(--dim); display: flex; gap: 6px; align-items: center; }
+.fc.short { color: #ff8da0; } .fc.ok b { color: var(--green); }
+
+/* history & statistics */
+.hist-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.hist-head h2 { margin: 0; }
+.hist-head .seg { display: inline-grid; grid-auto-flow: column; grid-template-columns: none; }
+.hist-head .seg button { padding: 7px 12px; }
+.jobs { display: grid; gap: 8px; }
+.jobrow { display: grid; grid-template-columns: 64px minmax(0, 2.4fr) repeat(3, minmax(0, 1fr)) 110px 28px; gap: 14px; align-items: center;
+  padding: 8px 10px; border-radius: 14px; background: rgba(255,255,255,.03); border: 1px solid var(--line); }
+.jobrow img, .jobrow .noimg { width: 64px; height: 48px; border-radius: 9px; object-fit: cover; background: #000; display: block; }
+.jobrow .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jobrow .dt { font: 500 11px var(--mono); color: var(--dim); margin-top: 3px; }
+.jobrow .num { font: 600 13px var(--mono); }
+.jobrow .num small { font-size: 11px; color: var(--dim); }
+.jobrow .num .lb { display: block; font: 500 10px var(--mono); color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
+.res { justify-self: start; display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 8px; font: 700 11px var(--mono); }
+.res.FINISH { background: rgba(61,255,170,.12); color: var(--green); }
+.res.FAILED { background: rgba(255,77,106,.14); color: #ff8da0; }
+.res.CANCELLED { background: rgba(255,181,71,.12); color: var(--amber); }
+.res.RUN { background: rgba(72,224,255,.12); color: var(--cyan); }
+.jobrow .del { border: 0; background: transparent; color: var(--faint); cursor: pointer; font-size: 18px; }
+.jobrow .del:hover { color: var(--red); }
+.empty-h { color: var(--dim); padding: 18px 4px; }
+.tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+.tile { background: rgba(255,255,255,.035); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+.tile .v { font: 700 26px/1.1 var(--mono); }
+.tile .v small { font-size: 13px; color: var(--dim); font-weight: 500; }
+.tile .k { font: 500 10px var(--mono); color: var(--dim); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 6px; }
+.charts { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; }
+.chart { background: rgba(255,255,255,.03); border: 1px solid var(--line); border-radius: 14px; padding: 14px; position: relative; }
+.chart h3 { margin: 0 0 10px; font: 600 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+.chart svg { width: 100%; height: 180px; display: block; overflow: visible; }
+.chart .bar { fill: var(--cyan); }
+.chart .bar.hl { fill: #9ff0ff; }
+.chart .grid line { stroke: rgba(255,255,255,.07); }
+.chart .axis text { fill: var(--dim); font: 500 10px var(--mono); }
+.tip { position: absolute; pointer-events: none; z-index: 5; padding: 7px 10px; border-radius: 10px; background: var(--panel-hi); border: 1px solid var(--line-hi);
+  font: 500 12px var(--mono); white-space: nowrap; transform: translate(-50%, -110%); }
+.mats { display: grid; gap: 9px; }
+.mat { display: grid; grid-template-columns: 92px 1fr 64px; gap: 10px; align-items: center; font: 500 12px var(--mono); }
+.mat .lab { display: flex; gap: 7px; align-items: center; }
+.mat .sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(255,255,255,.3); flex: none; }
+.mat .track { height: 10px; border-radius: 5px; background: rgba(255,255,255,.06); overflow: hidden; }
+.mat .track i { display: block; height: 100%; border-radius: 0 4px 4px 0; border: 1px solid rgba(255,255,255,.25); border-left: 0; box-sizing: border-box; }
+.mat .g { text-align: right; color: var(--text); }
+@media (max-width: 1200px) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } .charts { grid-template-columns: 1fr; } }
 .fil { display: flex; align-items: center; gap: 9px; font: 500 12px var(--mono); }
 .fil .sw { width: 14px; height: 14px; border-radius: 4px; flex: none; box-shadow: 0 0 10px currentColor; border: 1px solid rgba(255,255,255,.25); }
 .fil .g { margin-left: auto; color: var(--text); font-weight: 600; }
@@ -302,7 +353,7 @@ body.kiosk header .meta-row > :not(#clock):not(#b-kiosk) { display: none; }
 body.kiosk #clock { font-size: 26px; }
 body.kiosk main.grid { flex: 1; min-height: 0; grid-template-columns: 2.3fr 1fr; grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas: "cam mission" "cam thermo"; }
-body.kiosk .controls, body.kiosk .log, body.kiosk .amscard, body.kiosk .payload { display: none; }
+body.kiosk .controls, body.kiosk .log, body.kiosk .amscard, body.kiosk .payload, body.kiosk .history { display: none; }
 body.kiosk .cam { grid-area: cam; min-height: 0; } body.kiosk .cam .view { min-height: 0; }
 body.kiosk .mission { grid-area: mission; justify-content: center; } body.kiosk .thermo { grid-area: thermo; }
 body.kiosk .hud .big { font-size: 84px; }
@@ -318,6 +369,10 @@ body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
   .row-2 { grid-row: auto; }
 }
 @media (max-width: 640px) {
+  .jobrow { grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px; }
+  .jobrow .num, .jobrow .del { display: none; }
+  .jobrow img, .jobrow .noimg { width: 56px; height: 42px; }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .wrap { padding: 12px 16px 32px; }
   .grid { gap: 12px; }
   .card { padding: 14px; border-radius: 16px; }
@@ -448,6 +503,8 @@ body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
             <div class="stat"><div class="k" data-i18n="slicer">По слайсеру</div><div class="v" id="pred">—</div></div>
           </div>
           <div class="fil-list" id="fils"></div>
+          <div class="money" id="money"></div>
+          <div class="fil-list" id="forecast"></div>
         </div>
       </div>
     </section>
@@ -480,6 +537,16 @@ body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
     <section class="card log span-4">
       <h2 data-i18n="hLog">Бортжурнал</h2>
       <ul class="events" id="events"></ul>
+    </section>
+
+    <section class="card history span-12">
+      <div class="hist-head">
+        <h2 data-i18n="hHistory">История</h2>
+        <div class="seg" id="h-tabs"><button data-tab="log" class="on" data-i18n="tabLog">Журнал</button><button data-tab="stats" data-i18n="tabStats">Статистика</button></div>
+        <div class="seg" id="h-range" hidden><button data-d="7" data-i18n="r7">7 дней</button><button data-d="30" class="on" data-i18n="r30">30 дней</button><button data-d="365" data-i18n="r365">Год</button><button data-d="" data-i18n="rAll">Всё</button></div>
+      </div>
+      <div id="h-log" class="jobs"></div>
+      <div id="h-stats" hidden></div>
     </section>
   </main>
 </div>
@@ -523,6 +590,13 @@ const I18N = {
     notifyOn: "Уведомления включены", notifyDenied: "Браузер запретил уведомления", soundOn: "Звук включён", soundOff: "Звук выключен",
     loginTitle: "Пульт защищён паролем", loginText: "Смотреть можно без пароля, а управлять принтером только после входа.",
     login: "Войти", logout: "Выйти", locked: "Войти для управления", cancel: "Отмена", wrongPw: "Неверный пароль", tooMany: "Слишком много попыток, подождите 5 минут",
+    hHistory: "История", jobsShort: "печ.", tabLog: "Журнал", tabStats: "Статистика", r7: "7 дней", r30: "30 дней", r365: "Год", rAll: "Всё",
+    resFINISH: "Готово", resFAILED: "Сбой", resCANCELLED: "Отменено", resRUN: "Печатает", noHistory: "Пока пусто: записи появятся после печати.",
+    duration: "время", plastic: "пластик", cost: "стоимость", delConfirm: "Удалить запись из истории?",
+    stJobs: "Печатей", stHours: "Часов печати", stPlastic: "Пластик", stEnergy: "Электричество", stCost: "Стоимость", stSuccess: "Успешных",
+    chHours: "Часы печати по дням", chMaterials: "Пластик по материалам", kwh: "кВт·ч", kg: "кг", estimated: "≈ начало оценено",
+    costTitle: "Стоимость печати", costFil: "пластик", costEnergy: "электричество", costSetPrices: "задайте цены в настройках",
+    fcOk: "хватит", fcShort: "не хватит", fcUnknown: "остаток неизвестен", fcLeft: "в катушке", fcNeed: "нужно ещё",
     zoomReset: "Сброс", pip: "Модель поверх камеры", kiosk: "Режим киоска (Esc — выход)", layerShort: "слой",
     nFinish: "Печать готова", nFailed: "Печать сорвалась", nPause: "Печать на паузе", nError: "Ошибка принтера",
   },
@@ -546,6 +620,13 @@ const I18N = {
     notifyOn: "Notifications on", notifyDenied: "The browser blocked notifications", soundOn: "Sound on", soundOff: "Sound off",
     loginTitle: "Console is password-protected", loginText: "Anyone can watch; controlling the printer needs a login.",
     login: "Log in", logout: "Log out", locked: "Log in to control", cancel: "Cancel", wrongPw: "Wrong password", tooMany: "Too many attempts, wait 5 minutes",
+    hHistory: "History", jobsShort: "prints", tabLog: "Log", tabStats: "Statistics", r7: "7 days", r30: "30 days", r365: "Year", rAll: "All",
+    resFINISH: "Done", resFAILED: "Failed", resCANCELLED: "Cancelled", resRUN: "Printing", noHistory: "Nothing yet: entries appear after a print.",
+    duration: "time", plastic: "plastic", cost: "cost", delConfirm: "Delete this history entry?",
+    stJobs: "Prints", stHours: "Print hours", stPlastic: "Plastic", stEnergy: "Electricity", stCost: "Cost", stSuccess: "Successful",
+    chHours: "Print hours per day", chMaterials: "Plastic by material", kwh: "kWh", kg: "kg", estimated: "≈ start estimated",
+    costTitle: "Print cost", costFil: "plastic", costEnergy: "electricity", costSetPrices: "set prices in settings",
+    fcOk: "enough", fcShort: "not enough", fcUnknown: "amount unknown", fcLeft: "on spool", fcNeed: "still needed",
     zoomReset: "Reset", pip: "Model over camera", kiosk: "Kiosk mode (Esc to exit)", layerShort: "layer",
     nFinish: "Print finished", nFailed: "Print failed", nPause: "Print paused", nError: "Printer error",
   },
@@ -921,6 +1002,7 @@ function render(s) {
   $("task").textContent = s.task || "—";
   $("weight").innerHTML = s.job.weight_g ? `${s.job.weight_g.toFixed(1)}<small> ${t("g")}</small>` : "—";
   $("pred").innerHTML = s.job.prediction_s ? fmtDur(s.job.prediction_s / 60) : "—";
+  renderMoney(s);
   $("fils").innerHTML = (s.job.filaments || []).map((f) => `<div class="fil"><span class="sw" style="background:${esc(f.color)};color:${esc(f.color)}"></span><span>${esc(f.type)}</span><span class="t">${f.m ? f.m.toFixed(2) + " " + t("meters") : ""}</span><span class="g">${f.g ? f.g.toFixed(1) + " " + t("g") : ""}</span></div>`).join("");
   if (s.job.thumb && s.job.thumb_v !== thumbV) {
     thumbV = s.job.thumb_v;
@@ -951,6 +1033,8 @@ function render(s) {
 
   if (prevState && prevState !== "FINISH" && s.state === "FINISH") fireworks();
   announce(s, prevState);
+  // A print just ended: refresh the history a bit later, once the final photo is stored.
+  if (prevState && ["PREPARE", "RUNNING", "PAUSE"].includes(prevState) && prevState !== s.state) setTimeout(loadHistory, 15000);
   prevState = s.state;
 }
 
@@ -1065,9 +1149,127 @@ addEventListener("pointermove", () => {
 });
 if (new URLSearchParams(location.search).get("kiosk") === "1") setKiosk(true, false);
 
+/* ---------- payload: live cost estimate and "will the spool last" ---------- */
+const money = (v, cur) => (v == null ? "—" : `${cur || ""}${v.toFixed(2)}`);
+function renderMoney(s) {
+  const c = s.job.cost;
+  $("money").innerHTML = !c ? "" : !c.known
+    ? `<div>${t("costTitle")}: <b>${t("costSetPrices")}</b></div>`
+    : `<div class="total">≈ ${money(c.total, c.currency)}</div>
+       <div>${t("costFil")}: <b>${c.filament == null ? t("costSetPrices") : money(c.filament, c.currency)}</b> · ${t("costEnergy")}: <b>${c.energy == null ? "—" : money(c.energy, c.currency)}</b>${c.kwh != null ? ` (${c.kwh.toFixed(2)} ${t("kwh")})` : ""}</div>`;
+  $("forecast").innerHTML = (s.job.forecast || []).map((f) => {
+    const mark = f.status === "ok" ? `<b>✓ ${t("fcOk")}</b>` : f.status === "short" ? `<b>⚠ ${t("fcShort")}</b>` : t("fcUnknown");
+    const left = f.left_g == null ? "?" : `~${Math.round(f.left_g)} ${t("g")}`;
+    return `<div class="fc ${f.status}"><span class="sw" style="width:10px;height:10px;border-radius:3px;background:${esc(f.color)};border:1px solid rgba(255,255,255,.3)"></span>${esc(f.ams)}·${f.slot}: ${t("fcLeft")} ${left}, ${t("fcNeed")} ${f.need_g} ${t("g")} — ${mark}</div>`;
+  }).join("");
+}
+
+/* ---------- history & statistics ---------- */
+let histTab = "log", histDays = "30", histData = null, statsData = null;
+const fmtDate = (ts) => new Date(ts * 1000).toLocaleString(loc(), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+async function loadHistory() {
+  try {
+    histData = await (await fetch("/api/history")).json();
+    statsData = await (await fetch("/api/stats?days=" + histDays)).json();
+  } catch { return; }
+  renderHistory();
+}
+function renderHistory() {
+  $("h-log").hidden = histTab !== "log"; $("h-stats").hidden = histTab !== "stats"; $("h-range").hidden = histTab !== "stats";
+  document.querySelectorAll("#h-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === histTab));
+  document.querySelectorAll("#h-range button").forEach((b) => b.classList.toggle("on", b.dataset.d === histDays));
+  if (histData) renderJobs(histData);
+  if (statsData) renderStats(statsData);
+}
+function renderJobs(d) {
+  const cur = d.currency;
+  $("h-log").innerHTML = d.jobs.length ? d.jobs.map((j) => {
+    const res = j.result || "RUN", end = j.ended || Date.now() / 1000;
+    const img = j.has_snapshot ? `/api/history/${j.id}/snapshot.jpg` : j.has_thumb ? `/api/history/${j.id}/thumb.png` : "";
+    const frac = j.result === "FINISH" ? 1 : (j.pct || 0) / 100;
+    const grams = (j.filaments || []).reduce((a, f) => a + (f.g || 0), 0) * (j.result ? frac : 1);
+    const cost = j.cost_filament == null && j.cost_energy == null ? null : (j.cost_filament || 0) + (j.cost_energy || 0);
+    return `<div class="jobrow">
+      ${img ? `<a href="${img}" target="_blank" rel="noopener"><img src="${img}" alt="" loading="lazy"></a>` : `<span class="noimg"></span>`}
+      <div><div class="nm">${esc(j.task || "—")}</div><div class="dt">${fmtDate(j.started)}${j.start_estimated ? " · " + t("estimated") : ""}</div></div>
+      <div class="num"><span class="lb">${t("duration")}</span>${fmtDur((end - j.started) / 60)}</div>
+      <div class="num"><span class="lb">${t("plastic")}</span>${grams ? grams.toFixed(0) + " " + t("g") : "—"}</div>
+      <div class="num"><span class="lb">${t("cost")}</span>${cost == null ? "—" : money(cost, j.currency || cur)}</div>
+      <span class="res ${res}">${t("res" + res)}${j.result && j.result !== "FINISH" ? ` ${j.pct}%` : ""}</span>
+      ${j.result ? `<button class="del" data-id="${j.id}" title="×">×</button>` : "<span></span>"}
+    </div>`;
+  }).join("") : `<div class="empty-h">${t("noHistory")}</div>`;
+}
+function renderStats(st) {
+  const cur = st.currency, done = st.finished + st.failed;
+  const tile = (k, v) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  const plastic = st.grams >= 1000 ? `${(st.grams / 1000).toFixed(2)}<small> ${t("kg")}</small>` : `${Math.round(st.grams)}<small> ${t("g")}</small>`;
+  let html = `<div class="tiles">
+    ${tile(t("stJobs"), st.jobs)}
+    ${tile(t("stHours"), `${st.hours.toFixed(1)}<small> ${t("h")}</small>`)}
+    ${tile(t("stPlastic"), plastic)}
+    ${tile(t("stEnergy"), `${st.kwh.toFixed(1)}<small> ${t("kwh")}</small>`)}
+    ${tile(t("stCost"), st.cost ? `${cur}${st.cost.toFixed(2)}` : "—")}
+    ${tile(t("stSuccess"), done ? `${Math.round((st.finished / done) * 100)}<small>%</small>` : "—")}
+  </div><div class="charts">
+    <div class="chart" id="ch-days"><h3>${t("chHours")}</h3>${daysChart(st.daily)}</div>
+    <div class="chart"><h3>${t("chMaterials")}</h3><div class="mats">${st.by_material.slice(0, 8).map((m) => {
+      const max = st.by_material[0].g || 1;
+      return `<div class="mat"><span class="lab"><span class="sw" style="background:${esc(m.color)}"></span>${esc(m.type)}</span>
+        <span class="track"><i style="width:${Math.max(2, (m.g / max) * 100)}%;background:${esc(m.color)}"></i></span><span class="g">${m.g >= 1000 ? (m.g / 1000).toFixed(2) + " " + t("kg") : Math.round(m.g) + " " + t("g")}</span></div>`;
+    }).join("") || `<div class="empty-h">—</div>`}</div></div>
+  </div>`;
+  $("h-stats").innerHTML = html;
+}
+// Single-series bars: print hours per calendar day across the selected range, with a hover tooltip.
+function daysChart(daily) {
+  const span = histDays ? +histDays : Math.max(7, daily.length ? Math.ceil((Date.now() - new Date(daily[0].date)) / 864e5) + 1 : 7);
+  const days = Math.min(span, 90), byDate = Object.fromEntries(daily.map((d) => [d.date, d]));
+  const list = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 864e5), key = d.toLocaleDateString("sv-SE");
+    list.push({ key, d, v: byDate[key] ? byDate[key].hours : 0, jobs: byDate[key] ? byDate[key].jobs : 0 });
+  }
+  const W = 600, H = 180, pl = 28, pb = 20, max = Math.max(1, ...list.map((x) => x.v)), step = (W - pl) / list.length;
+  const bw = Math.max(2, step - 2), y = (v) => H - pb - (v / max) * (H - pb - 8);
+  const ticks = [0, max / 2, max].map((v) => `<line x1="${pl}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text x="${pl - 6}" y="${y(v) + 3}" text-anchor="end">${v.toFixed(v < 10 ? 1 : 0)}</text>`);
+  const every = Math.ceil(list.length / 8), hits = [];  // hover targets go last so they sit above the bars
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${t("chHours")}">
+    <g class="grid axis">${ticks.join("")}</g>
+    ${list.map((x, i) => {
+      const bx = pl + i * step + 1, h = H - pb - y(x.v);
+      const label = `${x.d.toLocaleDateString(loc(), { day: "numeric", month: "short" })}: ${x.v.toFixed(1)} ${t("h")} · ${x.jobs} ${t("jobsShort")}`;
+      hits.push(`<rect class="hit" x="${pl + i * step}" y="0" width="${step}" height="${H - pb}" fill="transparent" data-i="${i}" data-tip="${esc(label)}"/>`);
+      return `${x.v > 0 ? `<path class="bar" data-i="${i}" d="M${bx} ${H - pb}V${H - pb - h + Math.min(4, h)}q0 -${Math.min(4, h)} ${Math.min(4, bw / 2)} -${Math.min(4, h)}h${bw - 2 * Math.min(4, bw / 2)}q${Math.min(4, bw / 2)} 0 ${Math.min(4, bw / 2)} ${Math.min(4, h)}V${H - pb}z"/>` : ""}
+        ${i % every === 0 ? `<text class="axis" x="${bx + bw / 2}" y="${H - 5}" text-anchor="middle" style="fill:var(--dim);font:500 10px var(--mono)">${x.d.toLocaleDateString(loc(), { day: "numeric", month: "numeric" })}</text>` : ""}`;
+    }).join("")}
+    ${hits.join("")}
+  </svg>`;
+}
+$("h-tabs").onclick = (e) => { const b = e.target.closest("button"); if (b) { histTab = b.dataset.tab; renderHistory(); } };
+$("h-range").onclick = (e) => { const b = e.target.closest("button"); if (b) { histDays = b.dataset.d; loadHistory(); } };
+$("h-log").onclick = async (e) => {
+  const b = e.target.closest(".del"); if (!b || !confirm(t("delConfirm"))) return;
+  const r = await fetch("/api/history/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: +b.dataset.id }) });
+  if (r.status === 401) return askLogin(() => b.click());
+  loadHistory();
+};
+$("h-stats").addEventListener("mousemove", (e) => {
+  const hit = e.target.closest("[data-tip]"), box = $("ch-days");
+  let tip = box && box.querySelector(".tip");
+  box && box.querySelectorAll(".bar.hl").forEach((b) => b.classList.remove("hl"));
+  if (!hit || !box) { if (tip) tip.remove(); return; }
+  const bar = box.querySelector(`.bar[data-i="${hit.dataset.i}"]`); if (bar) bar.classList.add("hl");
+  if (!tip) { tip = document.createElement("div"); tip.className = "tip"; box.appendChild(tip); }
+  const r = box.getBoundingClientRect();
+  tip.textContent = hit.dataset.tip; tip.style.left = e.clientX - r.left + "px"; tip.style.top = e.clientY - r.top + "px";
+});
+$("h-stats").addEventListener("mouseleave", () => { const tip = document.querySelector("#ch-days .tip"); if (tip) tip.remove(); });
+setInterval(loadHistory, 5 * 60 * 1000);
+
 /* ---------- wiring ---------- */
 applyStatic();
-renderSound(); renderNotify(); loadSession();
+renderSound(); renderNotify(); loadSession(); loadHistory();
 buildGauges();
 $("lang").onclick = (e) => {
   const b = e.target.closest("button");
@@ -1076,7 +1278,7 @@ $("lang").onclick = (e) => {
   try { localStorage.setItem("lang", lang); } catch {}
   applyStatic();
   if (S) render(S);
-  renderLock();
+  renderLock(); renderHistory();
 };
 function connect() {
   const es = new EventSource("/events");

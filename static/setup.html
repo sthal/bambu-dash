@@ -91,7 +91,8 @@ label.check input { width: auto; }
 .help { display: grid; gap: 12px; font-size: 14px; line-height: 1.5; color: var(--dim); }
 .help b { color: var(--text); }
 .help code { font: 500 12px var(--mono); color: var(--cyan); background: rgba(72,224,255,.08); padding: 1px 6px; border-radius: 5px; }
-@media (max-width: 560px) { .fields { grid-template-columns: 1fr; } .card { padding: 18px; } }
+.fields.types { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 560px) { .fields { grid-template-columns: 1fr; } .fields.types { grid-template-columns: repeat(2, minmax(0, 1fr)); } .card { padding: 18px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
@@ -165,6 +166,21 @@ label.check input { width: auto; }
           <label class="check" id="pw-remove-wrap" hidden><input type="checkbox" id="pw-remove"> <span data-i18n="pwRemove">Убрать пароль</span></label>
         </div>
       </div>
+      <h2 style="margin-top:26px"><span class="n">¤</span><span data-i18n="sCost">Стоимость печати</span></h2>
+      <p class="lead" data-i18n="sCostLead">Нужно для расчёта стоимости каждой печати и статистики. Пустое поле — не учитывать.</p>
+      <div class="fields">
+        <div class="field"><label for="c-cur" data-i18n="cCur">Валюта</label><input id="c-cur" maxlength="4" placeholder="€"></div>
+        <div class="field"><label for="c-def" data-i18n="cDef">Пластик по умолчанию, за кг</label><input id="c-def" inputmode="decimal" placeholder="20"></div>
+        <div class="field full"><label data-i18n="cTypes">Цена за кг по материалам</label>
+          <div class="fields types" id="c-types"></div></div>
+        <div class="field"><label for="c-w" data-i18n="cPower">Средняя мощность при печати, Вт</label><input id="c-w" inputmode="decimal" placeholder="180">
+          <div class="hint" data-i18n="cPowerHint">Примерно 180 Вт для H2S. С розеткой-счётчиком можно уточнить.</div></div>
+        <div class="field"><label for="c-day" data-i18n="cDay">Дневной тариф, за кВт·ч</label><input id="c-day" inputmode="decimal" placeholder="0.13"></div>
+        <div class="field"><label for="c-night" data-i18n="cNight">Ночной тариф, за кВт·ч</label><input id="c-night" inputmode="decimal" placeholder="0.08">
+          <div class="hint" data-i18n="cNightHint">Пусто — весь день по дневному</div></div>
+        <div class="field"><label data-i18n="cNightTime">Ночной тариф действует</label>
+          <div style="display:flex;gap:8px;align-items:center"><input id="c-nf" type="time" value="22:00"><span>—</span><input id="c-nt" type="time" value="06:00"></div></div>
+      </div>
       <div class="actions">
         <button type="button" class="btn" id="test"><span data-i18n="test">Проверить связь</span></button>
         <button type="submit" class="btn primary" id="save"><span data-i18n="save">Сохранить и подключить</span></button>
@@ -199,6 +215,10 @@ const I18N = {
     e_code_required: "Введите Access Code: для другого принтера сохранённый не используется", e_port: "Порт должен быть от 1024 до 65535", e_net: "Сервер дашборда недоступен",
     f_reach: "Принтер не отвечает по этому адресу. Проверьте IP и что он в той же сети.", f_auth: "Принтер найден, но Access Code не подошёл.", f_status: "Подключились, но статус не пришёл. Проверьте серийный номер.",
     state: "состояние",
+    sCost: "Стоимость печати", sCostLead: "Нужно для расчёта стоимости каждой печати и статистики. Пустое поле — не учитывать.",
+    cCur: "Валюта", cDef: "Пластик по умолчанию, за кг", cTypes: "Цена за кг по материалам", cPower: "Средняя мощность при печати, Вт",
+    cPowerHint: "Примерно 180 Вт для H2S. С розеткой-счётчиком можно уточнить.", cDay: "Дневной тариф, за кВт·ч", cNight: "Ночной тариф, за кВт·ч",
+    cNightHint: "Пусто — весь день по дневному", cNightTime: "Ночной тариф действует", e_costs: "Проверьте цены: только числа",
     pw: "Пароль на пульт", pwHint: "Необязательно. Смотреть можно без пароля, управлять и менять настройки только с ним",
     pwSet: "Пароль задан. Введите новый, чтобы сменить", pwRemove: "Убрать пароль",
     e_password: "Пароль: от 4 до 128 символов", e_auth: "Нужно войти заново", gateTitle: "Вход в настройки", gateText: "Настройки защищены паролем.",
@@ -225,6 +245,10 @@ const I18N = {
     e_code_required: "Enter the Access Code: the stored one is never reused for a different printer", e_port: "Port must be between 1024 and 65535", e_net: "Dashboard server unreachable",
     f_reach: "No printer answers at this address. Check the IP and that it is on the same network.", f_auth: "Printer found, but the Access Code was rejected.", f_status: "Connected, but no status arrived. Check the serial number.",
     state: "state",
+    sCost: "Print cost", sCostLead: "Used to price each print and for statistics. Leave a field empty to ignore it.",
+    cCur: "Currency", cDef: "Default plastic, per kg", cTypes: "Price per kg by material", cPower: "Average power while printing, W",
+    cPowerHint: "About 180 W for the H2S. A metering plug would make it exact.", cDay: "Day tariff, per kWh", cNight: "Night tariff, per kWh",
+    cNightHint: "Empty: the day tariff all day", cNightTime: "Night tariff applies", e_costs: "Check the prices: numbers only",
     pw: "Console password", pwHint: "Optional. Anyone can watch; controlling and changing settings needs it",
     pwSet: "A password is set. Type a new one to change it", pwRemove: "Remove password",
     e_password: "Password: 4 to 128 characters", e_auth: "Please log in again", gateTitle: "Settings login", gateText: "Settings are password-protected.",
@@ -288,7 +312,23 @@ $("scan").onclick = async () => {
 function formData() {
   return { host: $("host").value.trim(), access_code: $("code").value.trim(), serial: $("serial").value.trim().toUpperCase(),
            name: $("name").value.trim(), port: $("port").value.trim(),
-           new_password: $("pw").value, remove_password: $("pw-remove").checked };
+           new_password: $("pw").value, remove_password: $("pw-remove").checked, costs: costsData() };
+}
+const MATERIALS = ["PLA", "PETG", "ABS", "ASA", "TPU", "PA", "PC", "PVA"];
+$("c-types").innerHTML = MATERIALS.map((m) => `<div class="field"><label for="c-${m}">${m}</label><input id="c-${m}" data-mat="${m}" inputmode="decimal"></div>`).join("");
+const numOrEmpty = (id) => $(id).value.trim().replace(",", ".");
+function costsData() {
+  const filament = {};
+  document.querySelectorAll("[data-mat]").forEach((i) => { const v = i.value.trim().replace(",", "."); if (v) filament[i.dataset.mat] = v; });
+  return { currency: $("c-cur").value.trim(), default_kg: numOrEmpty("c-def"), filament, power_w: numOrEmpty("c-w"),
+           day_price: numOrEmpty("c-day"), night_price: numOrEmpty("c-night"), night_from: $("c-nf").value || "22:00", night_to: $("c-nt").value || "06:00" };
+}
+function fillCosts(c) {
+  if (!c) return;
+  const put = (id, v) => { $(id).value = v == null ? "" : v; };
+  put("c-cur", c.currency); put("c-def", c.default_kg); put("c-w", c.power_w); put("c-day", c.day_price); put("c-night", c.night_price);
+  $("c-nf").value = c.night_from || "22:00"; $("c-nt").value = c.night_to || "06:00";
+  Object.entries(c.filament || {}).forEach(([k, v]) => { const i = document.querySelector(`[data-mat="${k}"]`); if (i) i.value = v; });
 }
 function markBad(err) {
   ["host", "code", "serial", "port", "pw"].forEach((f) => $(f).classList.remove("bad"));
@@ -352,6 +392,7 @@ $("gate-form").onsubmit = async (e) => {
     $("name").value = conf.name && conf.name !== "Bambu" ? conf.name : ""; $("port").value = conf.port || "";
     $("back").hidden = !conf.configured;
     $("pw-remove-wrap").hidden = !conf.has_password;
+    fillCosts(conf.costs);
   } catch {}
   applyLang();
   if (!conf || !conf.configured) $("scan").click();
