@@ -306,6 +306,7 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
       <span class="chip opt" id="nozzle-chip">сопло —</span>
       <span class="chip" title="Wi-Fi"><span class="bars" id="wifi"><i style="height:4px"></i><i style="height:7px"></i><i style="height:10px"></i><i style="height:12px"></i></span><b id="wifi-v">—</b></span>
       <span id="clock">--:--</span>
+      <a class="icon-btn" href="/setup" data-i18n-title="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
     </div>
   </header>
 
@@ -422,7 +423,7 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
 "use strict";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const STATE_COLORS = { RUNNING: "#48e0ff", PREPARE: "#9d7bff", SLICING: "#9d7bff", PAUSE: "#ffb547", FINISH: "#3dffaa", FAILED: "#ff4d6a", IDLE: "#8890b5", OFFLINE: "#ff4d6a" };
+const STATE_COLORS = { RUNNING: "#48e0ff", PREPARE: "#9d7bff", SLICING: "#9d7bff", PAUSE: "#ffb547", FINISH: "#3dffaa", FAILED: "#ff4d6a", IDLE: "#8890b5", OFFLINE: "#ff4d6a", UNCONFIGURED: "#ffb547" };
 const LIVE = new Set(["RUNNING", "PREPARE", "SLICING"]);
 let S = null, prevState = null;
 
@@ -442,7 +443,7 @@ const I18N = {
     humidity: "Влажность", drying: "сушка", empty: "пусто", printing: "ПЕЧАТАЕТ", extSpool: "Внешняя катушка", noAms: "AMS не подключена",
     quiet: "Пока тихо", ringProgress: "прогресс", ringLanded: "приземлились", ringDock: "на стапеле",
     noJob: "Нет активного задания", layerCaps: "СЛОЙ", printError: "Ошибка печати", offline: "Нет связи с принтером",
-    serverDown: "Сервер недоступен", cmdSent: "Команда отправлена", cmdFail: "Ошибка отправки",
+    settings: "Настройки", serverDown: "Сервер недоступен", cmdSent: "Команда отправлена", cmdFail: "Ошибка отправки",
   },
   en: {
     connecting: "Connecting…", aiTitle: "AI print monitoring", camConnecting: "CONNECTING TO CAMERA…", camAlt: "Printer camera",
@@ -459,7 +460,7 @@ const I18N = {
     humidity: "Humidity", drying: "drying", empty: "empty", printing: "PRINTING", extSpool: "External spool", noAms: "No AMS connected",
     quiet: "All quiet", ringProgress: "progress", ringLanded: "landed", ringDock: "docked",
     noJob: "No active job", layerCaps: "LAYER", printError: "Print error", offline: "Printer offline",
-    serverDown: "Server unreachable", cmdSent: "Command sent", cmdFail: "Send failed",
+    settings: "Settings", serverDown: "Server unreachable", cmdSent: "Command sent", cmdFail: "Send failed",
   },
 };
 let lang = "ru";
@@ -686,6 +687,7 @@ $("ring").style.strokeDashoffset = RING_C;
 let thumbV = null;
 function render(s) {
   S = s;
+  if (s.configured === false) { location.href = "/setup"; return; }
   const color = STATE_COLORS[s.state] || "#48e0ff", live = LIVE.has(s.state), active = live || s.state === "PAUSE";
   document.documentElement.style.setProperty("--state", color);
   $("app").classList.toggle("offline", s.state === "OFFLINE");

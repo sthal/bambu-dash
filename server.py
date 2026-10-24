@@ -6,14 +6,18 @@ RTSPS (322) for the camera via ffmpeg, implicit FTPS (990) for the job's .3mf
 (plate thumbnail, filament usage). Serves a single page plus SSE and MJPEG.
 """
 import collections
+import concurrent.futures
 import ftplib
 import io
+import ipaddress
 import json
 import os
 import queue
+import re
 import socket
 import ssl
 import subprocess
+import tempfile
 import threading
 import time
 import zipfile
@@ -23,11 +27,38 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import paho.mqtt.client as mqtt
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-CFG = json.load(open(os.path.join(BASE, "config.json")))
-HOST, SERIAL, CODE = CFG["host"], CFG["serial"], CFG["access_code"]
-NAME = CFG.get("name", "Bambu")
-PORT = int(CFG.get("port", 8790))
-RTSP = f"rtsps://bblp:{CODE}@{HOST}:322/streaming/live/1"
+CFG_PATH = os.path.join(BASE, "config.json")
+DEFAULTS = {"host": "", "serial": "", "access_code": "", "name": "Bambu", "port": 8790}
+
+
+def load_cfg():
+    try:
+        with open(CFG_PATH) as f:
+            return {**DEFAULTS, **json.load(f)}
+    except FileNotFoundError:
+        return dict(DEFAULTS)
+
+
+def save_cfg(c):
+    # Written with 0600 from the start: the file holds the printer's access code.
+    tmp = CFG_PATH + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(c, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, CFG_PATH)
+
+
+cfg = load_cfg()
+cfg_changed = threading.Event()
+PORT = int(os.environ.get("PORT") or cfg.get("port") or 8790)
+
+
+def configured():
+    return bool(cfg["host"] and cfg["serial"] and cfg["access_code"])
+
+
+def rtsp_url():
+    return f"rtsps://bblp:{cfg['access_code']}@{cfg['host']}:322/streaming/live/1"
 
 # Every user-facing string goes out as {"ru": ..., "en": ...}; the page picks the language.
 def L(ru, en):
@@ -61,6 +92,7 @@ STATES = {
     "IDLE": L("Ожидание", "Idle"), "PREPARE": L("Подготовка", "Preparing"), "SLICING": L("Нарезка", "Slicing"),
     "RUNNING": L("Печать", "Printing"), "PAUSE": L("Пауза", "Paused"), "FINISH": L("Готово", "Finished"),
     "FAILED": L("Сбой", "Failed"), "OFFLINE": L("Нет связи", "Offline"),
+    "UNCONFIGURED": L("Не настроен", "Not configured"),
 }
 SPEEDS = {1: L("Тихий", "Silent"), 2: L("Стандарт", "Standard"), 3: L("Спорт", "Sport"), 4: L("Безумный", "Ludicrous")}
 
@@ -150,7 +182,9 @@ def build_view():
     dev = p.get("device") or {}
     online = mqtt_ok and time.time() - last_msg < 90
     state = p.get("gcode_state") or "IDLE"
-    if not online:
+    if not configured():
+        state = "UNCONFIGURED"
+    elif not online:
         state = "OFFLINE"
     stg = p.get("stg_cur")
     stg = int(stg) if isinstance(stg, (int, float)) or (isinstance(stg, str) and stg.lstrip("-").isdigit()) else -1
@@ -219,7 +253,7 @@ def build_view():
     meta = job.get("meta") or {}
 
     return {
-        "name": NAME, "serial": SERIAL, "online": online, "ts": time.time(),
+        "name": cfg["name"] or "Bambu", "online": online, "configured": configured(), "ts": time.time(),
         "state": state, "state_txt": state_name(state), "stage": stage, "stage_id": stg,
         "pct": int(_num(p.get("mc_percent"), 0) or 0), "remaining_min": rem,
         "eta": (time.time() + rem * 60) if rem and state in ("RUNNING", "PAUSE", "PREPARE") else None,
@@ -289,14 +323,14 @@ def send(payload):
     seq[0] += 1
     for v in payload.values():
         v["sequence_id"] = str(seq[0])
-    client.publish(f"device/{SERIAL}/request", json.dumps(payload))
+    client.publish(f"device/{cfg['serial']}/request", json.dumps(payload))
 
 
 def on_connect(c, u, flags, rc, props=None):
     global mqtt_ok
     mqtt_ok = not rc.is_failure
     if mqtt_ok:
-        c.subscribe(f"device/{SERIAL}/report")
+        c.subscribe(f"device/{cfg['serial']}/report")
         send({"pushing": {"command": "pushall"}})
         log_event("link", L("Связь с принтером установлена", "Connected to printer"))
     else:
@@ -334,19 +368,46 @@ def on_message(c, u, m):
     dirty.set()
 
 
+def reset_state():
+    global last_msg
+    with lock:
+        raw.clear()
+        hist.clear()
+        job.update(key=None, started_at=None, thumb=None, meta=None, fetched_for=None, fetch_err_at=0)
+        prev.update(state=None, stage=None, err=None, hms=())
+        last_msg = 0.0
+    dirty.set()
+
+
+def apply_cfg(new):
+    """Save settings and reconnect everything to the (possibly different) printer."""
+    cfg.update(new)
+    save_cfg(cfg)
+    reset_state()
+    camera.restart()
+    log_event("link", L(f"Настройки сохранены: {cfg['name']} ({cfg['host']})",
+                        f"Settings saved: {cfg['name']} ({cfg['host']})"))
+    cfg_changed.set()
+    client.disconnect()  # makes loop_forever return, mqtt_loop reconnects with the new settings
+
+
 def mqtt_loop():
-    client.username_pw_set("bblp", CODE)
     client.tls_set(cert_reqs=ssl.CERT_NONE)
     client.tls_insecure_set(True)
     client.on_connect, client.on_disconnect, client.on_message = on_connect, on_disconnect, on_message
     client.reconnect_delay_set(2, 30)
     while True:
+        if not configured():
+            cfg_changed.wait()
+        cfg_changed.clear()
+        host = cfg["host"]
+        client.username_pw_set("bblp", cfg["access_code"])
         try:
-            client.connect(HOST, 8883, 30)
+            client.connect(host, 8883, 30)
             client.loop_forever(retry_first_connection=True)
         except (OSError, ssl.SSLError) as e:
-            log_event("error", L(f"Нет связи с {HOST}: {e}", f"Cannot reach {HOST}: {e}"))
-            time.sleep(10)
+            log_event("error", L(f"Нет связи с {host}: {e}", f"Cannot reach {host}: {e}"))
+            cfg_changed.wait(10)
 
 
 def sampler():
@@ -404,8 +465,8 @@ def fetch_job():
         ctx = ssl.create_default_context()
         ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
         f = ImplicitFTPS(context=ctx)
-        f.connect(HOST, 990, timeout=20)
-        f.login("bblp", CODE)
+        f.connect(cfg["host"], 990, timeout=20)
+        f.login("bblp", cfg["access_code"])
         f.prot_p()
         files = []
         for d in ("/cache", "/"):
@@ -459,9 +520,18 @@ class Camera:
         self.clients, self.proc, self.idle_since = 0, None, time.time()
         threading.Thread(target=self._watch, daemon=True).start()
 
+    def restart(self):
+        """Drop the stream so the watcher reopens it with the current settings."""
+        proc, self.proc = self.proc, None
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+        self.frame = None
+
     def _start(self):
+        if not configured():
+            return
         self.proc = subprocess.Popen(
-            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", RTSP,
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", rtsp_url(),
              "-an", "-vf", "scale=1280:-2,fps=15", "-q:v", "6", "-f", "mjpeg", "pipe:1"],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
         threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
@@ -510,13 +580,117 @@ class Camera:
     def snapshot(self):
         if self.frame and time.time() - self.frame_t < 3:
             return self.frame
+        if not configured():
+            return None
         r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp",
-                            "-i", RTSP, "-frames:v", "1", "-f", "mjpeg", "pipe:1"],
+                            "-i", rtsp_url(), "-frames:v", "1", "-f", "mjpeg", "pipe:1"],
                            capture_output=True, timeout=25)
         return r.stdout or None
 
 
 camera = Camera()
+
+# ---------- setup: discovery and connection test ----------
+
+SERIAL_RE = re.compile(r"^[0-9A-Z]{8,20}$")
+
+
+def printer_identity(host, timeout=3):
+    """Bambu printers present a cert whose CN is the serial, issued by BBL. Returns serial or None."""
+    try:
+        with socket.create_connection((host, 8883), timeout=timeout) as raw_sock:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
+            with ctx.wrap_socket(raw_sock) as s:
+                der = s.getpeercert(binary_form=True)
+    except (OSError, ssl.SSLError):
+        return None
+    # The stdlib only decodes certificates from a file, so round-trip through a temp PEM.
+    with tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False) as f:
+        f.write(ssl.DER_cert_to_PEM_cert(der))
+    try:
+        info = ssl._ssl._test_decode_cert(f.name)  # noqa: SLF001
+    except ssl.SSLError:
+        return None
+    finally:
+        os.unlink(f.name)
+    subject = dict(x[0] for x in info.get("subject", ()))
+    issuer = dict(x[0] for x in info.get("issuer", ()))
+    cn = subject.get("commonName", "")
+    if "BBL" not in issuer.get("organizationName", "") + issuer.get("commonName", ""):
+        return None
+    return cn if SERIAL_RE.match(cn) else None
+
+
+def local_subnets():
+    """The /24 of the interface that routes to the internet (good enough for a home LAN)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        ip = s.getsockname()[0]
+    except OSError:
+        return []
+    finally:
+        s.close()
+    return [ipaddress.ip_network(f"{ip}/24", strict=False)]
+
+
+def discover():
+    def port_open(ip):
+        try:
+            with socket.create_connection((str(ip), 8883), timeout=0.8):
+                return str(ip)
+        except OSError:
+            return None
+
+    hosts = [ip for net in local_subnets() for ip in net.hosts()]
+    with concurrent.futures.ThreadPoolExecutor(64) as ex:
+        candidates = [h for h in ex.map(port_open, hosts) if h]
+        serials = list(ex.map(printer_identity, candidates))
+    return [{"host": h, "serial": s} for h, s in zip(candidates, serials) if s]
+
+
+def test_printer(host, code, serial=None):
+    """Checks reachability, identity and the access code; returns what it learned."""
+    found = printer_identity(host, timeout=5)
+    if not found:
+        return {"ok": False, "step": "reach"}
+    serial = serial or found
+    result = {"ok": False, "step": "auth", "serial": found}
+    got = threading.Event()
+    c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"mission-test-{os.getpid()}-{time.time():.0f}")
+    c.username_pw_set("bblp", code)
+    c.tls_set(cert_reqs=ssl.CERT_NONE)
+    c.tls_insecure_set(True)
+
+    def on_conn(cl, u, f, rc, p=None):
+        if rc.is_failure:
+            got.set()
+            return
+        result["step"] = "status"
+        cl.subscribe(f"device/{serial}/report")
+        cl.publish(f"device/{serial}/request", json.dumps({"pushing": {"sequence_id": "1", "command": "pushall"}}))
+
+    def on_msg(cl, u, m):
+        try:
+            p = json.loads(m.payload).get("print") or {}
+        except ValueError:
+            return
+        if p.get("gcode_state"):
+            result.update(ok=True, step="done", state=p.get("gcode_state"))
+            got.set()
+
+    c.on_connect, c.on_message = on_conn, on_msg
+    try:
+        c.connect(host, 8883, 15)
+        c.loop_start()
+        got.wait(10)
+    except (OSError, ssl.SSLError):
+        pass
+    finally:
+        c.loop_stop()
+        c.disconnect()
+    return result
 
 # ---------- HTTP ----------
 
@@ -565,11 +739,32 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _json(self, code, obj):
+        self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+
+    def _page(self, name):
+        with open(os.path.join(BASE, "static", name), "rb") as f:
+            self._send(200, f.read(), "text/html; charset=utf-8")
+
     def do_GET(self):
         path = self.path.split("?")[0]
         if path in ("/", "/index.html"):
-            with open(os.path.join(BASE, "static", "index.html"), "rb") as f:
-                return self._send(200, f.read(), "text/html; charset=utf-8")
+            if not configured():
+                self.send_response(302)
+                self.send_header("Location", "/setup")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            return self._page("index.html")
+        if path == "/setup":
+            return self._page("setup.html")
+        if path == "/api/config":
+            # Never hand the access code back out, only whether one is stored.
+            return self._json(200, {"host": cfg["host"], "serial": cfg["serial"], "name": cfg["name"],
+                                    "port": cfg["port"], "running_port": PORT,
+                                    "has_code": bool(cfg["access_code"]), "configured": configured()})
+        if path == "/api/discover":
+            return self._json(200, {"printers": discover(), "subnets": [str(n) for n in local_subnets()]})
         if path == "/events":
             return self._sse()
         if path == "/stream.mjpg":
@@ -583,13 +778,67 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, b"not found", "text/plain")
 
     def do_POST(self):
-        if self.path != "/api/cmd":
-            return self._send(404, b"", "text/plain")
         n = int(self.headers.get("Content-Length") or 0)
         try:
-            a = json.loads(self.rfile.read(n) or b"{}")
+            a = json.loads(self.rfile.read(min(n, 65536)) or b"{}")
         except ValueError:
             return self._send(400, b"bad json", "text/plain")
+        if not isinstance(a, dict):
+            return self._send(400, b"bad json", "text/plain")
+        if self.path == "/api/cmd":
+            return self._cmd(a)
+        if self.path == "/api/test":
+            return self._test(a)
+        if self.path == "/api/config":
+            return self._save(a)
+        self._send(404, b"", "text/plain")
+
+    def _creds(self, a):
+        """Validated (host, serial, code) from a form; the stored code is reused only for the same printer."""
+        host = str(a.get("host", "")).strip()
+        serial = str(a.get("serial", "")).strip().upper()
+        code = str(a.get("access_code", "")).strip()
+        if not re.match(r"^[A-Za-z0-9.-]{1,253}$", host):
+            return None, "host"
+        if serial and not SERIAL_RE.match(serial):
+            return None, "serial"
+        if not code:
+            if not (cfg["access_code"] and host == cfg["host"] and serial in ("", cfg["serial"])):
+                return None, "code_required"
+            code = cfg["access_code"]
+        elif not re.match(r"^[A-Za-z0-9]{4,32}$", code):
+            return None, "code"
+        return (host, serial, code), None
+
+    def _test(self, a):
+        creds, err = self._creds(a)
+        if err:
+            return self._json(400, {"ok": False, "error": err})
+        host, serial, code = creds
+        self._json(200, test_printer(host, code, serial or None))
+
+    def _save(self, a):
+        creds, err = self._creds(a)
+        if err:
+            return self._json(400, {"ok": False, "error": err})
+        host, serial, code = creds
+        if not serial:
+            serial = printer_identity(host) or ""
+            if not serial:
+                return self._json(400, {"ok": False, "error": "serial"})
+        try:
+            port = int(a.get("port") or cfg["port"])
+        except (TypeError, ValueError):
+            port = 0
+        if not 1024 <= port <= 65535:
+            return self._json(400, {"ok": False, "error": "port"})
+        name = (str(a.get("name") or "").strip() or "Bambu")[:40]
+        apply_cfg({"host": host, "serial": serial, "access_code": code, "name": name, "port": port})
+        self._json(200, {"ok": True, "serial": serial, "restart_needed": port != PORT})
+
+    def _cmd(self, a):
+        if not configured():
+            return self._send(409, b"not configured", "text/plain")
         act = a.get("action")
         if act == "light":
             for c in light_cmds(bool(a.get("on"))):
@@ -654,7 +903,8 @@ def main():
         threading.Thread(target=target, daemon=True).start()
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     srv.daemon_threads = True
-    print(f"Mission Control: http://localhost:{PORT}  (printer {HOST})", flush=True)
+    where = cfg["host"] if configured() else "not configured, open /setup"
+    print(f"Mission Control: http://localhost:{PORT}  (printer: {where})", flush=True)
     srv.serve_forever()
 
 

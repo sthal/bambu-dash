@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#04050d">
+<title>Mission Control Setup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #04050d; --panel: rgba(13, 17, 38, .62); --line: rgba(130, 160, 255, .16); --line-hi: rgba(130, 170, 255, .38);
+  --text: #e8edff; --dim: #8890b5; --faint: #4b5378;
+  --cyan: #48e0ff; --violet: #9d7bff; --pink: #ff5fa8; --amber: #ffb547; --green: #3dffaa; --red: #ff4d6a;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Space Grotesk", -apple-system, system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); }
+body { -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+#stars { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.nebula { position: fixed; inset: -20%; pointer-events: none; filter: blur(60px); opacity: .55;
+  background: radial-gradient(40% 35% at 20% 25%, rgba(157,123,255,.28), transparent 70%), radial-gradient(35% 30% at 85% 15%, rgba(72,224,255,.18), transparent 70%), radial-gradient(45% 40% at 70% 90%, rgba(255,95,168,.16), transparent 70%); }
+.wrap { position: relative; max-width: 720px; margin: 0 auto; padding: 22px 16px 48px; }
+header { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; flex-wrap: wrap; }
+.logo { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none;
+  background: conic-gradient(from 200deg, var(--cyan), var(--violet), var(--pink), var(--cyan)); box-shadow: 0 0 24px rgba(157,123,255,.45); }
+.logo svg { width: 22px; height: 22px; }
+h1 { margin: 0; font-size: 20px; }
+header small { display: block; color: var(--dim); font: 500 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+.sp { flex: 1; }
+.lang { display: inline-flex; padding: 3px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); }
+.lang button { border: 0; background: transparent; color: var(--dim); font: 600 11px var(--mono); padding: 5px 9px; border-radius: 7px; cursor: pointer; }
+.lang button.on { background: linear-gradient(135deg, rgba(72,224,255,.25), rgba(157,123,255,.3)); color: #fff; }
+.back { color: var(--dim); font: 500 12px var(--mono); text-decoration: none; padding: 7px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.back:hover { color: var(--text); border-color: var(--cyan); }
+.card { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 22px;
+  backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); margin-bottom: 16px; }
+.card h2 { margin: 0 0 6px; font-size: 17px; display: flex; align-items: center; gap: 10px; }
+.card h2 .n { width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; font: 700 12px var(--mono);
+  background: rgba(157,123,255,.18); color: var(--violet); border: 1px solid rgba(157,123,255,.4); }
+.card p.lead { margin: 0 0 16px; color: var(--dim); font-size: 14px; line-height: 1.5; }
+.btn { border-radius: 12px; border: 1px solid var(--line-hi); background: rgba(255,255,255,.05); color: var(--text);
+  font: 700 14px var(--sans); padding: 12px 18px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: .2s; }
+.btn:hover:not(:disabled) { border-color: var(--cyan); box-shadow: 0 0 18px rgba(72,224,255,.3); }
+.btn:disabled { opacity: .45; cursor: progress; }
+.btn.primary { background: linear-gradient(135deg, rgba(72,224,255,.3), rgba(157,123,255,.4)); border-color: rgba(157,123,255,.7); box-shadow: 0 0 22px rgba(157,123,255,.3); }
+.spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); border-top-color: #fff; animation: rot .8s linear infinite; }
+@keyframes rot { to { transform: rotate(360deg); } }
+.found { display: grid; gap: 8px; margin-top: 14px; }
+.printer { display: flex; align-items: center; gap: 12px; text-align: left; width: 100%; padding: 12px 14px; border-radius: 14px; cursor: pointer;
+  border: 1px solid var(--line); background: rgba(255,255,255,.03); color: var(--text); font: inherit; transition: .2s; }
+.printer:hover, .printer.on { border-color: var(--cyan); box-shadow: 0 0 16px rgba(72,224,255,.25); background: rgba(72,224,255,.06); }
+.printer .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); flex: none; }
+.printer b { font: 600 14px var(--mono); }
+.printer span { color: var(--dim); font: 500 12px var(--mono); margin-left: auto; }
+.note { color: var(--dim); font: 500 12px var(--mono); margin-top: 10px; }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field.full { grid-column: 1 / -1; }
+label { font: 600 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+.inp { position: relative; }
+input { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: rgba(4,5,13,.55); color: var(--text);
+  font: 500 15px var(--mono); outline: none; transition: .2s; }
+input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(72,224,255,.15); }
+input.bad { border-color: var(--red); box-shadow: 0 0 0 3px rgba(255,77,106,.15); }
+input::placeholder { color: var(--faint); }
+.eye { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border: 0; background: transparent; color: var(--dim); cursor: pointer; padding: 6px; }
+.eye svg { width: 18px; height: 18px; display: block; }
+.hint { color: var(--faint); font-size: 12px; line-height: 1.45; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+.steps { list-style: none; margin: 16px 0 0; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: rgba(255,255,255,.03); display: grid; gap: 8px; }
+.steps li { display: flex; gap: 10px; align-items: center; font-size: 14px; }
+.steps i { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font: 700 11px var(--mono); font-style: normal; flex: none; }
+.steps .ok i { background: rgba(61,255,170,.18); color: var(--green); }
+.steps .fail i { background: rgba(255,77,106,.18); color: var(--red); }
+.steps .wait i { background: rgba(255,255,255,.06); color: var(--faint); }
+.steps .fail { color: #ffb3c0; }
+.msg { margin-top: 14px; padding: 12px 14px; border-radius: 12px; font-weight: 600; font-size: 14px; }
+.msg.ok { background: rgba(61,255,170,.1); border: 1px solid rgba(61,255,170,.4); color: var(--green); }
+.msg.err { background: rgba(255,77,106,.1); border: 1px solid rgba(255,77,106,.45); color: #ffb3c0; }
+.help { display: grid; gap: 12px; font-size: 14px; line-height: 1.5; color: var(--dim); }
+.help b { color: var(--text); }
+.help code { font: 500 12px var(--mono); color: var(--cyan); background: rgba(72,224,255,.08); padding: 1px 6px; border-radius: 5px; }
+@media (max-width: 560px) { .fields { grid-template-columns: 1fr; } .card { padding: 18px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<canvas id="stars"></canvas>
+<div class="nebula"></div>
+<div class="wrap">
+  <header>
+    <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#04050d" stroke-width="2.4" stroke-linecap="round"><path d="M4 20h16M7 20V9l5-5 5 5v11M10 14h4"/></svg></div>
+    <div><h1 data-i18n="title">Настройка принтера</h1><small>Mission Control</small></div>
+    <div class="sp"></div>
+    <div class="lang" id="lang"><button data-lang="ru">RU</button><button data-lang="en">EN</button></div>
+    <a class="back" href="/" id="back" hidden data-i18n="back">← Дашборд</a>
+  </header>
+
+  <section class="card">
+    <h2><span class="n">1</span><span data-i18n="s1">Найти принтер</span></h2>
+    <p class="lead" data-i18n="s1lead">Поищу принтеры Bambu Lab в вашей сети. Компьютер и принтер должны быть в одной сети.</p>
+    <button class="btn" id="scan"><span data-i18n="scan">Искать в сети</span></button>
+    <div class="found" id="found"></div>
+    <div class="note" id="scan-note"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="n">2</span><span data-i18n="s2">Данные подключения</span></h2>
+    <p class="lead" data-i18n="s2lead">Access Code хранится только на этом компьютере, в config.json. Наружу сервер его не отдаёт.</p>
+    <form id="form" autocomplete="off">
+      <div class="fields">
+        <div class="field">
+          <label for="host" data-i18n="host">IP-адрес</label>
+          <input id="host" name="host" placeholder="192.168.1.50" inputmode="decimal" required>
+          <div class="hint" data-i18n="hostHint">Экран принтера → Настройки → Сеть</div>
+        </div>
+        <div class="field">
+          <label for="code">Access Code</label>
+          <div class="inp">
+            <input id="code" name="access_code" type="password" placeholder="12ab34cd" autocomplete="new-password" spellcheck="false">
+            <button type="button" class="eye" id="eye" aria-label="show"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+          </div>
+          <div class="hint" id="code-hint" data-i18n="codeHint">Там же, рядом с режимом «LAN Only»</div>
+        </div>
+        <div class="field">
+          <label for="serial" data-i18n="serial">Серийный номер</label>
+          <input id="serial" name="serial" placeholder="AUTO" spellcheck="false" style="text-transform:uppercase">
+          <div class="hint" data-i18n="serialHint">Можно не заполнять: определится автоматически</div>
+        </div>
+        <div class="field">
+          <label for="name" data-i18n="name">Название</label>
+          <input id="name" name="name" placeholder="H2S" maxlength="40">
+          <div class="hint" data-i18n="nameHint">Как подписать принтер на дашборде</div>
+        </div>
+        <div class="field">
+          <label for="port" data-i18n="port">Порт дашборда</label>
+          <input id="port" name="port" type="number" min="1024" max="65535" placeholder="8790">
+          <div class="hint" data-i18n="portHint">Смена порта применится после перезапуска</div>
+        </div>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn" id="test"><span data-i18n="test">Проверить связь</span></button>
+        <button type="submit" class="btn primary" id="save"><span data-i18n="save">Сохранить и подключить</span></button>
+      </div>
+      <ul class="steps" id="steps" hidden></ul>
+      <div class="msg" id="msg" hidden></div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2><span class="n">?</span><span data-i18n="s3">Подсказки</span></h2>
+    <div class="help" id="help"></div>
+  </section>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const I18N = {
+  ru: {
+    title: "Настройка принтера", back: "← Дашборд", s1: "Найти принтер",
+    s1lead: "Поищу принтеры Bambu Lab в вашей сети. Компьютер и принтер должны быть в одной сети.",
+    scan: "Искать в сети", scanning: "Сканирую…", scanNone: "Принтеры не найдены в {net}. Введите IP вручную.", scanFound: "Найдено в {net}: {n}. Нажмите, чтобы выбрать.",
+    s2: "Данные подключения", s3: "Подсказки", s2lead: "Access Code хранится только на этом компьютере, в config.json. Наружу сервер его не отдаёт.",
+    host: "IP-адрес", hostHint: "Экран принтера → Настройки → Сеть", codeHint: "Там же, рядом с режимом «LAN Only»",
+    codeSaved: "Сохранён. Оставьте пустым, чтобы не менять", serial: "Серийный номер", serialHint: "Можно не заполнять: определится автоматически",
+    name: "Название", nameHint: "Как подписать принтер на дашборде", port: "Порт дашборда", portHint: "Смена порта применится после перезапуска",
+    test: "Проверить связь", testing: "Проверяю…", save: "Сохранить и подключить", saving: "Сохраняю…",
+    stReach: "Принтер Bambu Lab отвечает", stAuth: "Проверка Access Code", stStatus: "Получение статуса",
+    savedOk: "Сохранено. Открываю дашборд…", savedRestart: "Сохранено. Новый порт заработает после перезапуска сервера.",
+    e_host: "Проверьте IP-адрес", e_serial: "Серийный номер не похож на настоящий, или принтер не отвечает", e_code: "Access Code: только латиница и цифры",
+    e_code_required: "Введите Access Code: для другого принтера сохранённый не используется", e_port: "Порт должен быть от 1024 до 65535", e_net: "Сервер дашборда недоступен",
+    f_reach: "Принтер не отвечает по этому адресу. Проверьте IP и что он в той же сети.", f_auth: "Принтер найден, но Access Code не подошёл.", f_status: "Подключились, но статус не пришёл. Проверьте серийный номер.",
+    state: "состояние",
+    help: [
+      "<b>IP и Access Code</b> — на экране принтера: Настройки → Сеть (WLAN). Код из 8 символов меняется, если включить и выключить LAN Only.",
+      "<b>Камера</b> — включите на принтере <code>LAN Mode Liveview</code>, иначе видео не будет.",
+      "<b>Управление</b> (пауза, стоп, свет) на свежих прошивках может требовать Developer Mode. Статус и камера работают без него.",
+      "<b>Стабильный адрес</b> — закрепите IP принтера в роутере (DHCP-резервация), чтобы он не менялся и не конфликтовал с другими устройствами.",
+    ],
+  },
+  en: {
+    title: "Printer setup", back: "← Dashboard", s1: "Find your printer",
+    s1lead: "I'll look for Bambu Lab printers on your network. This computer and the printer must be on the same network.",
+    scan: "Scan network", scanning: "Scanning…", scanNone: "No printers found on {net}. Enter the IP manually.", scanFound: "Found on {net}: {n}. Click one to select it.",
+    s2: "Connection details", s3: "Tips", s2lead: "The Access Code is stored only on this computer, in config.json. The server never sends it back out.",
+    host: "IP address", hostHint: "Printer screen → Settings → Network", codeHint: "Same screen, next to “LAN Only” mode",
+    codeSaved: "Saved. Leave empty to keep it", serial: "Serial number", serialHint: "Optional: detected automatically",
+    name: "Name", nameHint: "Label shown on the dashboard", port: "Dashboard port", portHint: "A new port takes effect after a restart",
+    test: "Test connection", testing: "Testing…", save: "Save and connect", saving: "Saving…",
+    stReach: "Bambu Lab printer responds", stAuth: "Access Code check", stStatus: "Status from printer",
+    savedOk: "Saved. Opening the dashboard…", savedRestart: "Saved. The new port takes effect after restarting the server.",
+    e_host: "Check the IP address", e_serial: "Serial number looks wrong, or the printer does not respond", e_code: "Access Code: letters and digits only",
+    e_code_required: "Enter the Access Code: the stored one is never reused for a different printer", e_port: "Port must be between 1024 and 65535", e_net: "Dashboard server unreachable",
+    f_reach: "No printer answers at this address. Check the IP and that it is on the same network.", f_auth: "Printer found, but the Access Code was rejected.", f_status: "Connected, but no status arrived. Check the serial number.",
+    state: "state",
+    help: [
+      "<b>IP and Access Code</b> are on the printer screen: Settings → Network (WLAN). The 8-character code changes if you toggle LAN Only.",
+      "<b>Camera</b>: enable <code>LAN Mode Liveview</code> on the printer, otherwise there is no video.",
+      "<b>Control</b> (pause, stop, light) may require Developer Mode on recent firmware. Status and camera work without it.",
+      "<b>Stable address</b>: reserve the printer's IP in your router (DHCP reservation) so it never changes or clashes with other devices.",
+    ],
+  },
+};
+let lang = "ru";
+try { lang = localStorage.getItem("lang") === "en" ? "en" : "ru"; } catch {}
+const t = (k, vars = {}) => String(I18N[lang][k] ?? I18N.ru[k] ?? k).replace(/\{(\w+)\}/g, (_, v) => vars[v] ?? "");
+let conf = null, lastScan = null, lastSteps = null;
+
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-i18n]").forEach((e) => { e.textContent = t(e.dataset.i18n); });
+  document.querySelectorAll("#lang button").forEach((b) => b.classList.toggle("on", b.dataset.lang === lang));
+  $("help").innerHTML = I18N[lang].help.map((h) => `<div>${h}</div>`).join("");
+  if (conf && conf.has_code) { $("code").placeholder = "••••••••"; $("code-hint").textContent = t("codeSaved"); }
+  if (lastScan) renderScan(lastScan);
+  if (lastSteps) renderSteps(lastSteps);
+}
+$("lang").onclick = (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  lang = b.dataset.lang; try { localStorage.setItem("lang", lang); } catch {}
+  applyLang();
+};
+
+function busy(btn, on, labelKey) {
+  btn.disabled = on;
+  btn.innerHTML = on ? `<span class="spin"></span><span>${t(labelKey)}</span>` : `<span data-i18n="${btn.dataset.k}">${t(btn.dataset.k)}</span>`;
+}
+$("scan").dataset.k = "scan"; $("test").dataset.k = "test"; $("save").dataset.k = "save";
+
+function showMsg(kind, text) { const m = $("msg"); m.hidden = !text; m.className = "msg " + kind; m.textContent = text; }
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function renderScan(r) {
+  const net = (r.subnets || []).join(", ") || "LAN";
+  $("found").innerHTML = r.printers.map((p) => `<button type="button" class="printer ${p.host === $("host").value ? "on" : ""}" data-host="${esc(p.host)}" data-serial="${esc(p.serial)}"><i class="dot"></i><b>${esc(p.host)}</b><span>${esc(p.serial)}</span></button>`).join("");
+  $("scan-note").textContent = r.printers.length ? t("scanFound", { net, n: r.printers.length }) : t("scanNone", { net });
+}
+$("found").onclick = (e) => {
+  const b = e.target.closest(".printer"); if (!b) return;
+  $("host").value = b.dataset.host; $("serial").value = b.dataset.serial;
+  document.querySelectorAll(".printer").forEach((x) => x.classList.toggle("on", x === b));
+  $("code").focus();
+};
+$("scan").onclick = async () => {
+  busy($("scan"), true, "scanning");
+  try { lastScan = await (await fetch("/api/discover")).json(); renderScan(lastScan); }
+  catch { $("scan-note").textContent = t("e_net"); }
+  busy($("scan"), false);
+};
+
+function formData() {
+  return { host: $("host").value.trim(), access_code: $("code").value.trim(), serial: $("serial").value.trim().toUpperCase(),
+           name: $("name").value.trim(), port: $("port").value.trim() };
+}
+function markBad(err) {
+  ["host", "code", "serial", "port"].forEach((f) => $(f).classList.remove("bad"));
+  const map = { host: "host", code: "code", code_required: "code", serial: "serial", port: "port" };
+  if (map[err]) $(map[err]).classList.add("bad");
+}
+function renderSteps(r) {
+  const order = ["reach", "auth", "status"], reached = r.ok ? 3 : order.indexOf(r.step);
+  const label = { reach: t("stReach") + (r.serial ? ` · ${esc(r.serial)}` : ""), auth: t("stAuth"), status: t("stStatus") + (r.state ? ` · ${t("state")} ${esc(r.state)}` : "") };
+  $("steps").hidden = false;
+  $("steps").innerHTML = order.map((s, i) => {
+    const cls = i < reached ? "ok" : i === reached ? "fail" : "wait";
+    return `<li class="${cls}"><i>${cls === "ok" ? "✓" : cls === "fail" ? "✕" : "·"}</i>${label[s]}</li>`;
+  }).join("");
+  if (!r.ok) showMsg("err", t("f_" + r.step)); else showMsg("", "");
+}
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return r.json();
+}
+$("test").onclick = async () => {
+  busy($("test"), true, "testing"); showMsg("", ""); $("steps").hidden = true; markBad();
+  try {
+    const r = await post("/api/test", formData());
+    if (r.error) { markBad(r.error); showMsg("err", t("e_" + r.error)); }
+    else { lastSteps = r; renderSteps(r); if (r.serial && !$("serial").value) $("serial").value = r.serial; }
+  } catch { showMsg("err", t("e_net")); }
+  busy($("test"), false);
+};
+$("form").onsubmit = async (e) => {
+  e.preventDefault();
+  busy($("save"), true, "saving"); showMsg("", ""); markBad();
+  try {
+    const r = await post("/api/config", formData());
+    if (!r.ok) { markBad(r.error); showMsg("err", t("e_" + r.error)); }
+    else if (r.restart_needed) { showMsg("ok", t("savedRestart")); }
+    else { showMsg("ok", t("savedOk")); setTimeout(() => (location.href = "/"), 1200); }
+  } catch { showMsg("err", t("e_net")); }
+  busy($("save"), false);
+};
+$("eye").onclick = () => { const c = $("code"); c.type = c.type === "password" ? "text" : "password"; };
+
+(async () => {
+  try {
+    conf = await (await fetch("/api/config")).json();
+    $("host").value = conf.host || ""; $("serial").value = conf.serial || "";
+    $("name").value = conf.name && conf.name !== "Bambu" ? conf.name : ""; $("port").value = conf.port || "";
+    $("back").hidden = !conf.configured;
+  } catch {}
+  applyLang();
+  if (!conf || !conf.configured) $("scan").click();
+})();
+
+/* starfield, same as the dashboard but lighter */
+(() => {
+  const c = $("stars"), x = c.getContext("2d"), reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let stars = [], w, h, dpr;
+  function size() {
+    dpr = Math.min(devicePixelRatio || 1, 2); w = c.width = innerWidth * dpr; h = c.height = innerHeight * dpr;
+    stars = Array.from({ length: Math.round((innerWidth * innerHeight) / 3200) }, () => ({ x: Math.random() * w, y: Math.random() * h, z: Math.random() ** 2, p: Math.random() * 6.28 }));
+  }
+  function draw(tm) {
+    x.clearRect(0, 0, w, h);
+    for (const s of stars) {
+      if (!reduce) { s.x -= (0.03 + s.z * 0.25) * dpr; if (s.x < 0) { s.x = w; s.y = Math.random() * h; } }
+      x.fillStyle = `rgba(255,255,255,${0.25 + s.z * 0.75 * (0.65 + 0.35 * Math.sin(tm / 700 + s.p))})`;
+      x.beginPath(); x.arc(s.x, s.y, (0.4 + s.z * 1.4) * dpr, 0, 6.283); x.fill();
+    }
+    if (!reduce) requestAnimationFrame(draw);
+  }
+  addEventListener("resize", size); size(); requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
