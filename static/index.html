@@ -49,7 +49,8 @@ body { overflow-x: hidden; -webkit-font-smoothing: antialiased; }
   animation: drift 60s ease-in-out infinite alternate; }
 @keyframes drift { to { transform: translate3d(3%, -2%, 0) rotate(3deg); } }
 
-.wrap { position: relative; z-index: 1; max-width: 1680px; margin: 0 auto; padding: 18px 22px 40px; }
+/* the page scales up as a whole on wide screens (see fitScreen), so this width is in design pixels */
+.wrap { position: relative; z-index: 1; max-width: 1760px; margin: 0 auto; padding: 18px 22px 40px; }
 
 /* header */
 header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; flex-wrap: wrap; }
@@ -420,7 +421,7 @@ a.logo:hover { transform: scale(1.08); box-shadow: 0 0 32px rgba(157,123,255,.75
 .pip .lbl { position: absolute; left: 0; right: 0; bottom: 5px; text-align: center; font: 600 10px var(--mono); color: var(--dim); letter-spacing: .08em; }
 
 /* kiosk: one screen, no controls, for a wall tablet or TV */
-body.kiosk .wrap { max-width: none; height: 100vh; display: flex; flex-direction: column; padding: 14px 18px; }
+body.kiosk .wrap { max-width: none; height: calc(100vh / var(--z, 1)); display: flex; flex-direction: column; padding: 14px 18px; }
 body.kiosk header { margin-bottom: 12px; }
 body.kiosk header .meta-row > :not(#clock):not(#b-kiosk) { display: none; }
 body.kiosk .printers { display: none; }
@@ -1219,7 +1220,7 @@ function zoomAt(px, py, factor) {
   zoom.x = px - (px - zoom.x) * k; zoom.y = py - (py - zoom.y) * k; zoom.s = s1;
   applyZoom();
 }
-const local = (e) => { const r = view.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+const local = (e) => { const r = view.getBoundingClientRect(), k = view.offsetWidth / r.width; return [(e.clientX - r.left) * k, (e.clientY - r.top) * k]; };
 const onUI = (e) => e.target.closest("button, a, .zoom-badge");
 view.addEventListener("wheel", (e) => { if (onUI(e)) return; e.preventDefault(); zoomAt(...local(e), Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
 view.addEventListener("dblclick", (e) => { if (onUI(e)) return; zoom.s > 1 ? (zoom.s = 1, applyZoom()) : zoomAt(...local(e), 2.5); });
@@ -1564,7 +1565,8 @@ $("h-stats").addEventListener("mousemove", (e) => {
   const bar = box.querySelector(`.bar[data-i="${hit.dataset.i}"]`); if (bar) bar.classList.add("hl");
   if (!tip) { tip = document.createElement("div"); tip.className = "tip"; box.appendChild(tip); }
   const r = box.getBoundingClientRect();
-  tip.textContent = hit.dataset.tip; tip.style.left = e.clientX - r.left + "px"; tip.style.top = e.clientY - r.top + "px";
+  const k = box.offsetWidth / r.width;  // screen px -> CSS px under page zoom
+  tip.textContent = hit.dataset.tip; tip.style.left = (e.clientX - r.left) * k + "px"; tip.style.top = (e.clientY - r.top) * k + "px";
 });
 $("h-stats").addEventListener("mouseleave", () => { const tip = document.querySelector("#ch-days .tip"); if (tip) tip.remove(); });
 setInterval(loadHistory, 5 * 60 * 1000);
@@ -1789,7 +1791,8 @@ document.addEventListener("mousemove", (e) => {
   let tip = box.querySelector(".tip"); if (!tip) { tip = document.createElement("div"); tip.className = "tip"; box.appendChild(tip); }
   const br = box.getBoundingClientRect();
   tip.innerHTML = `${new Date(tt * 1000).toLocaleTimeString(loc(), { hour: "2-digit", minute: "2-digit" })}<br>${rows.join("<br>")}`;
-  tip.style.left = e.clientX - br.left + "px"; tip.style.top = e.clientY - br.top + "px";
+  const k = box.offsetWidth / br.width;
+  tip.style.left = (e.clientX - br.left) * k + "px"; tip.style.top = (e.clientY - br.top) * k + "px";
 });
 
 /* 3D toolpath preview (three.js, loaded on first use) */
@@ -1865,6 +1868,18 @@ function viewToolpath(box, tp) {
     dispose: () => { alive = false; removeEventListener("resize", onResize); groups.forEach((g) => { g.geo.dispose(); g.line.material.dispose(); }); renderer.dispose(); renderer.domElement.remove(); },
   };
 }
+
+/* ---------- fit any screen: wide monitors get the same layout, proportionally bigger ---------- */
+const DESIGN_W = 1760;
+function fitScreen() {
+  // only scale up (phones and laptops keep the native layout); cap so a 5K screen isn't comical
+  const z = innerWidth > DESIGN_W ? Math.min(innerWidth / DESIGN_W, 1.8) : 1;
+  document.body.style.zoom = z === 1 ? "" : z.toFixed(3);
+  document.documentElement.style.setProperty("--z", z.toFixed(3));
+  try { applyZoom(); } catch {}  // the camera elements may not exist yet on the very first call
+}
+addEventListener("resize", fitScreen);
+fitScreen();
 
 /* ---------- wiring ---------- */
 applyStatic();
