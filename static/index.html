@@ -49,8 +49,7 @@ body { overflow-x: hidden; -webkit-font-smoothing: antialiased; }
   animation: drift 60s ease-in-out infinite alternate; }
 @keyframes drift { to { transform: translate3d(3%, -2%, 0) rotate(3deg); } }
 
-/* the page scales up as a whole on wide screens (see fitScreen), so this width is in design pixels */
-.wrap { position: relative; z-index: 1; max-width: 1760px; margin: 0 auto; padding: 18px 22px 40px; }
+.wrap { position: relative; z-index: 1; margin: 0 auto; padding: 16px clamp(16px, 1.6vw, 36px) 36px; }
 
 /* header */
 header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; flex-wrap: wrap; }
@@ -421,7 +420,7 @@ a.logo:hover { transform: scale(1.08); box-shadow: 0 0 32px rgba(157,123,255,.75
 .pip .lbl { position: absolute; left: 0; right: 0; bottom: 5px; text-align: center; font: 600 10px var(--mono); color: var(--dim); letter-spacing: .08em; }
 
 /* kiosk: one screen, no controls, for a wall tablet or TV */
-body.kiosk .wrap { max-width: none; height: calc(100vh / var(--z, 1)); display: flex; flex-direction: column; padding: 14px 18px; }
+body.kiosk .wrap { max-width: none; height: 100vh; display: flex; flex-direction: column; padding: 14px 18px; }
 body.kiosk header { margin-bottom: 12px; }
 body.kiosk header .meta-row > :not(#clock):not(#b-kiosk) { display: none; }
 body.kiosk .printers { display: none; }
@@ -442,6 +441,47 @@ body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
 @media (max-width: 1200px) {
   .span-8, .span-4 { grid-column: span 12; }
   .row-2 { grid-row: auto; }
+}
+/* desktop: denser cards so more fits on screen */
+@media (min-width: 641px) {
+  .grid { gap: 12px; }
+  .card { padding: 14px; border-radius: 16px; }
+  .card h2 { margin-bottom: 10px; }
+  header { margin-bottom: 12px; }
+  .ring { width: 172px; height: 172px; }
+  .ring .pct { font-size: 42px; }
+  .alt { height: 172px; }
+  .stat .v { font-size: 20px; }
+  .times .stat { padding: 9px 12px; }
+  .times .stat .v { font-size: 22px; }
+  .mission { gap: 10px; }
+  .gauge { padding: 10px 12px 8px; }
+  .gauge .dial { height: 108px; }
+  .gauge .read { top: 42px; }
+  .gauge .read .c { font-size: 28px; }
+  .spark { height: 30px; }
+  .thumb { width: 120px; height: 120px; }
+  .model { gap: 12px; }
+  .spool svg { max-width: 76px; }
+  .unit { padding: 12px; }
+  .hud .big { font-size: 48px; }
+  .btn { padding: 11px 8px; }
+  .seg button { padding: 8px 4px; }
+}
+/* wide screens: three columns, everything above the history fits on one screen */
+@media (min-width: 1800px) {
+  main.grid { grid-template-areas:
+      "cam cam cam cam cam cam mission mission mission payload payload payload"
+      "cam cam cam cam cam cam thermo thermo thermo thermo thermo thermo"
+      "ams ams ams ams ams ams controls controls controls log log log"
+      "hist hist hist hist hist hist hist hist hist hist hist hist"; }
+  main.grid > .cam { grid-area: cam; } main.grid > .mission { grid-area: mission; } main.grid > .payload { grid-area: payload; }
+  main.grid > .thermo { grid-area: thermo; } main.grid > .amscard { grid-area: ams; } main.grid > .controls { grid-area: controls; }
+  main.grid > .log { grid-area: log; } main.grid > .history { grid-area: hist; }
+  .ring-wrap { gap: 12px; }
+  .payload .model { flex-direction: column; }
+  .payload .thumb { width: 100%; height: 110px; }
+  .events { max-height: 260px; }
 }
 @media (max-width: 640px) {
   .jobrow { grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px; }
@@ -1868,18 +1908,6 @@ function viewToolpath(box, tp) {
     dispose: () => { alive = false; removeEventListener("resize", onResize); groups.forEach((g) => { g.geo.dispose(); g.line.material.dispose(); }); renderer.dispose(); renderer.domElement.remove(); },
   };
 }
-
-/* ---------- fit any screen: wide monitors get the same layout, proportionally bigger ---------- */
-const DESIGN_W = 1760;
-function fitScreen() {
-  // only scale up (phones and laptops keep the native layout); cap so a 5K screen isn't comical
-  const z = innerWidth > DESIGN_W ? Math.min(innerWidth / DESIGN_W, 1.8) : 1;
-  document.body.style.zoom = z === 1 ? "" : z.toFixed(3);
-  document.documentElement.style.setProperty("--z", z.toFixed(3));
-  try { applyZoom(); } catch {}  // the camera elements may not exist yet on the very first call
-}
-addEventListener("resize", fitScreen);
-fitScreen();
 
 /* ---------- wiring ---------- */
 applyStatic();

@@ -103,6 +103,14 @@ label.check input { width: auto; }
 .help b { color: var(--text); }
 .help code { font: 500 12px var(--mono); color: var(--cyan); background: rgba(72,224,255,.08); padding: 1px 6px; border-radius: 5px; }
 .fields.types { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+/* wide screens: two columns, the long form on the right */
+@media (min-width: 1300px) {
+  .wrap { max-width: 1500px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); column-gap: 16px; align-items: start;
+    grid-template-areas: "head head" "gate gate" "mine conn" "find conn" "tips conn" ". conn"; }
+  .wrap > header { grid-area: head; } #gate { grid-area: gate; } #mine { grid-area: mine; } #find { grid-area: find; }
+  #conn { grid-area: conn; } #tips { grid-area: tips; }
+  .card { margin-bottom: 16px; }
+}
 @media (max-width: 560px) { .fields { grid-template-columns: 1fr; } .fields.types { grid-template-columns: repeat(2, minmax(0, 1fr)); } .card { padding: 18px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
@@ -135,7 +143,7 @@ label.check input { width: auto; }
     <button class="btn" id="add"><span data-i18n="addPrinter">+ Добавить принтер</span></button>
   </section>
 
-  <section class="card main">
+  <section class="card main" id="find">
     <h2><span class="n">1</span><span data-i18n="s1">Найти принтер</span></h2>
     <p class="lead" data-i18n="s1lead">Поищу принтеры Bambu Lab в вашей сети. Компьютер и принтер должны быть в одной сети.</p>
     <button class="btn" id="scan"><span data-i18n="scan">Искать в сети</span></button>
@@ -143,7 +151,7 @@ label.check input { width: auto; }
     <div class="note" id="scan-note"></div>
   </section>
 
-  <section class="card main">
+  <section class="card main" id="conn">
     <h2><span class="n">2</span><span data-i18n="s2">Данные подключения</span><span class="tag" id="editing" style="margin-left:6px"></span></h2>
     <p class="lead" data-i18n="s2lead">Access Code хранится только на этом компьютере, в config.json. Наружу сервер его не отдаёт.</p>
     <form id="form" autocomplete="off">
@@ -216,7 +224,7 @@ label.check input { width: auto; }
     </form>
   </section>
 
-  <section class="card main">
+  <section class="card main" id="tips">
     <h2><span class="n">?</span><span data-i18n="s3">Подсказки</span></h2>
     <div class="help" id="help"></div>
   </section>
@@ -434,14 +442,6 @@ $("form").onsubmit = async (e) => {
   } catch { showMsg("err", t("e_net")); }
   busy($("save"), false);
 };
-// Wide screens: scale the whole page up proportionally, like the dashboard (laptops and phones unchanged).
-function fitScreen() {
-  const z = innerWidth > 1440 ? Math.min(innerWidth / 1440, 1.8) : 1;
-  document.body.style.zoom = z === 1 ? "" : z.toFixed(3);
-}
-addEventListener("resize", fitScreen);
-fitScreen();
-
 // Back from settings (browser or mouse button) always goes to the main dashboard screen.
 const toMain = () => { location.href = "/" + (currentP && currentP !== "new" ? "?p=" + encodeURIComponent(currentP) : ""); };
 $("home").onclick = (e) => { e.preventDefault(); toMain(); };
