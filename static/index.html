@@ -68,6 +68,12 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
 @keyframes pulse { 50% { transform: scale(1.5); opacity: .5; } }
 .pill .sub { color: var(--dim); font-weight: 500; }
 .hspace { flex: 1; }
+.printers { display: flex; gap: 6px; flex-wrap: wrap; }
+.printers button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--dim); font: 600 12px var(--sans); }
+.printers button.on { color: var(--text); border-color: var(--line-hi); background: var(--panel-hi); box-shadow: 0 0 14px rgba(157,123,255,.25); }
+.printers .d { width: 8px; height: 8px; border-radius: 50%; }
+.printers small { font: 600 11px var(--mono); color: var(--cyan); }
 .lang { display: inline-flex; padding: 3px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); }
 .lang button { border: 0; background: transparent; color: var(--dim); font: 600 11px var(--mono); letter-spacing: .08em; padding: 5px 9px; border-radius: 7px; cursor: pointer; }
 .lang button.on { background: linear-gradient(135deg, rgba(72,224,255,.25), rgba(157,123,255,.3)); color: #fff; }
@@ -270,6 +276,22 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
 .fan .spin { animation: spin var(--fs, 0s) linear infinite; }
 .fan .v { margin-left: auto; color: var(--text); font-weight: 600; }
 .ai { display: flex; gap: 6px; flex-wrap: wrap; }
+.tune { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.tune .row { display: grid; grid-template-columns: 74px 1fr 52px; gap: 10px; align-items: center; font: 500 12px var(--mono); color: var(--dim); }
+.tune .temps2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tune .tset { display: flex; align-items: center; gap: 6px; font: 500 12px var(--mono); color: var(--dim); }
+.tune input[type=number], .dry input[type=number], .dry select { width: 70px; padding: 7px 8px; border-radius: 9px; border: 1px solid var(--line); background: rgba(4,5,13,.55); color: var(--text); font: 600 13px var(--mono); }
+.tune button, .dry button { border-radius: 9px; border: 1px solid var(--line-hi); background: rgba(255,255,255,.05); color: var(--text); font: 700 12px var(--sans); padding: 7px 10px; cursor: pointer; }
+.tune button:hover:not(:disabled), .dry button:hover:not(:disabled) { border-color: var(--cyan); }
+.tune input[type=range] { width: 100%; accent-color: var(--cyan); }
+.tune .v { text-align: right; color: var(--text); }
+.tune :disabled, .dry :disabled { opacity: .4; cursor: not-allowed; }
+.dry select { width: auto; min-width: 110px; }
+.lockmsg { font-size: 12px; line-height: 1.45; color: var(--amber); background: rgba(255,181,71,.08); border: 1px solid rgba(255,181,71,.3); border-radius: 10px; padding: 9px 11px; }
+.lockmsg button { margin-top: 6px; }
+.dry { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font: 500 12px var(--mono); color: var(--dim); }
+.dry .t { font: 600 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+.dry .status { color: var(--amber); }
 
 /* ams */
 .ams-units { display: flex; gap: 16px; flex-wrap: wrap; }
@@ -350,6 +372,7 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
 body.kiosk .wrap { max-width: none; height: 100vh; display: flex; flex-direction: column; padding: 14px 18px; }
 body.kiosk header { margin-bottom: 12px; }
 body.kiosk header .meta-row > :not(#clock):not(#b-kiosk) { display: none; }
+body.kiosk .printers { display: none; }
 body.kiosk #clock { font-size: 26px; }
 body.kiosk main.grid { flex: 1; min-height: 0; grid-template-columns: 2.3fr 1fr; grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas: "cam mission" "cam thermo"; }
@@ -412,6 +435,7 @@ body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
       <div><h1 id="pname">H2S</h1><small>Mission Control</small></div>
     </div>
     <div class="pill" id="pill"><span class="dot"></span><span id="pstate" data-i18n="connecting">Подключение…</span><span class="sub" id="pstage"></span></div>
+    <div class="printers" id="printers" hidden></div>
     <div class="hspace"></div>
     <div class="meta-row">
       <div class="lang" id="lang" role="group" aria-label="Language"><button data-lang="ru">RU</button><button data-lang="en">EN</button></div>
@@ -526,12 +550,31 @@ body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
       </div>
       <div class="hint" data-i18n="stopHint">«Стоп» — удерживать 2 секунды</div>
       <div class="fans" id="fans"></div>
+      <div class="tune" id="tune">
+        <div class="temps2">
+          <label class="tset"><span data-i18n="nozzle">Сопло</span><input type="number" id="t-nozzle" min="0" max="300" step="5"><button data-target="nozzle">OK</button></label>
+          <label class="tset"><span data-i18n="bed">Стол</span><input type="number" id="t-bed" min="0" max="110" step="5"><button data-target="bed">OK</button></label>
+        </div>
+        <div class="row"><span data-i18n="fanPart">Обдув</span><input type="range" min="0" max="100" step="10" data-fan="part"><span class="v" id="fv-part">—</span></div>
+        <div class="row"><span data-i18n="fanAux">Боковой</span><input type="range" min="0" max="100" step="10" data-fan="aux"><span class="v" id="fv-aux">—</span></div>
+        <div class="row"><span data-i18n="fanChamber">Камера</span><input type="range" min="0" max="100" step="10" data-fan="chamber"><span class="v" id="fv-chamber">—</span></div>
+        <div class="lockmsg" id="lock-tune" hidden></div>
+      </div>
       <div class="ai" id="ai"></div>
     </section>
 
     <section class="card amscard span-8">
       <h2 data-i18n="hAms">Топливные баки · AMS</h2>
       <div class="ams-units" id="ams"></div>
+      <div class="dry" id="dry">
+        <span class="t" data-i18n="dryTitle">Сушка</span>
+        <select id="dry-unit"></select>
+        <label><input type="number" id="dry-temp" min="35" max="85" step="5" value="55"> °C</label>
+        <label><input type="number" id="dry-hours" min="1" max="24" step="1" value="8"> <span data-i18n="h">ч</span></label>
+        <button id="dry-start" data-i18n="dryStart">Начать</button><button id="dry-stop" data-i18n="dryStop">Остановить</button>
+        <span class="status" id="dry-status"></span>
+      </div>
+      <div class="lockmsg" id="lock-dry" hidden style="margin-top:10px"></div>
     </section>
 
     <section class="card log span-4">
@@ -568,6 +611,10 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const STATE_COLORS = { RUNNING: "#48e0ff", PREPARE: "#9d7bff", SLICING: "#9d7bff", PAUSE: "#ffb547", FINISH: "#3dffaa", FAILED: "#ff4d6a", IDLE: "#8890b5", OFFLINE: "#ff4d6a", UNCONFIGURED: "#ffb547" };
 const LIVE = new Set(["RUNNING", "PREPARE", "SLICING"]);
 let S = null, prevState = null;
+// Which printer this page shows: ?p=<id>, else the last one viewed, else the server's first.
+let PID = new URLSearchParams(location.search).get("p") || "";
+try { PID = PID || localStorage.getItem("printer") || ""; } catch {}
+const pq = (path) => (PID ? path + (path.includes("?") ? "&" : "?") + "p=" + encodeURIComponent(PID) : path);
 
 const I18N = {
   ru: {
@@ -590,7 +637,11 @@ const I18N = {
     notifyOn: "Уведомления включены", notifyDenied: "Браузер запретил уведомления", soundOn: "Звук включён", soundOff: "Звук выключен",
     loginTitle: "Пульт защищён паролем", loginText: "Смотреть можно без пароля, а управлять принтером только после входа.",
     login: "Войти", logout: "Выйти", locked: "Войти для управления", cancel: "Отмена", wrongPw: "Неверный пароль", tooMany: "Слишком много попыток, подождите 5 минут",
-    hHistory: "История", jobsShort: "печ.", tabLog: "Журнал", tabStats: "Статистика", r7: "7 дней", r30: "30 дней", r365: "Год", rAll: "Всё",
+    hHistory: "История", jobsShort: "печ.",
+    lockedShort: "Принтер не принимает эту команду без Developer Mode",
+    dryTitle: "Сушка", dryStart: "Начать", dryStop: "Остановить", dryLeft: "сушится, осталось", dryConfirm: "Начать сушку?",
+    tempConfirm: "Изменить температуру во время печати?", retry: "Попробовать снова",
+    lockedText: "Принтер отклоняет эти команды от сторонних программ («mqtt message verify failed»). Нужен Developer Mode: на принтере Настройки → Сеть → LAN Only и Developer Mode. Облако Bambu и Handy при этом перестанут работать.", tabLog: "Журнал", tabStats: "Статистика", r7: "7 дней", r30: "30 дней", r365: "Год", rAll: "Всё",
     resFINISH: "Готово", resFAILED: "Сбой", resCANCELLED: "Отменено", resRUN: "Печатает", noHistory: "Пока пусто: записи появятся после печати.",
     duration: "время", plastic: "пластик", cost: "стоимость", delConfirm: "Удалить запись из истории?",
     stJobs: "Печатей", stHours: "Часов печати", stPlastic: "Пластик", stEnergy: "Электричество", stCost: "Стоимость", stSuccess: "Успешных",
@@ -620,7 +671,11 @@ const I18N = {
     notifyOn: "Notifications on", notifyDenied: "The browser blocked notifications", soundOn: "Sound on", soundOff: "Sound off",
     loginTitle: "Console is password-protected", loginText: "Anyone can watch; controlling the printer needs a login.",
     login: "Log in", logout: "Log out", locked: "Log in to control", cancel: "Cancel", wrongPw: "Wrong password", tooMany: "Too many attempts, wait 5 minutes",
-    hHistory: "History", jobsShort: "prints", tabLog: "Log", tabStats: "Statistics", r7: "7 days", r30: "30 days", r365: "Year", rAll: "All",
+    hHistory: "History", jobsShort: "prints",
+    lockedShort: "The printer refuses this command without Developer Mode",
+    dryTitle: "Drying", dryStart: "Start", dryStop: "Stop", dryLeft: "drying, left", dryConfirm: "Start drying?",
+    tempConfirm: "Change the temperature during a print?", retry: "Try again",
+    lockedText: "The printer rejects these commands from third-party apps (\"mqtt message verify failed\"). Developer Mode is needed: on the printer Settings → Network → LAN Only and Developer Mode. Bambu cloud and Handy stop working then.", tabLog: "Log", tabStats: "Statistics", r7: "7 days", r30: "30 days", r365: "Year", rAll: "All",
     resFINISH: "Done", resFAILED: "Failed", resCANCELLED: "Cancelled", resRUN: "Printing", noHistory: "Nothing yet: entries appear after a print.",
     duration: "time", plastic: "plastic", cost: "cost", delConfirm: "Delete this history entry?",
     stJobs: "Prints", stHours: "Print hours", stPlastic: "Plastic", stEnergy: "Electricity", stCost: "Cost", stSuccess: "Successful",
@@ -708,8 +763,9 @@ const n0 = (v) => (v == null || isNaN(v) ? "—" : Math.round(v));
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2600); }
 async function cmd(action, extra = {}) {
   try {
-    const r = await fetch("/api/cmd", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...extra }) });
+    const r = await fetch("/api/cmd", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, p: PID, ...extra }) });
     if (r.status === 401) { session.authed = false; renderLock(); return askLogin(() => cmd(action, extra)); }
+    if (r.status === 409) return toast(t("lockedShort"));
     toast(r.ok ? t("cmdSent") : t("cmdFail"));
   } catch { toast(t("serverDown")); }
 }
@@ -793,7 +849,7 @@ $("b-notify").onclick = async () => {
 function notify(title, body) {
   if (!canNotify || Notification.permission !== "granted") return;
   try {
-    const n = new Notification(title, { body, icon: "/static/icons/icon-192.png", image: "/snapshot.jpg?t=" + Date.now(), tag: "mission-" + title });
+    const n = new Notification(title, { body, icon: "/static/icons/icon-192.png", image: pq("/snapshot.jpg?t=" + Date.now()), tag: "mission-" + title });
     n.onclick = () => { window.focus(); n.close(); };
   } catch {}
 }
@@ -960,6 +1016,8 @@ $("ring").style.strokeDashoffset = RING_C;
 let thumbV = null;
 function render(s) {
   S = s;
+  if (!PID) { PID = s.id; history.replaceState(null, "", pq(location.pathname + location.search.replace(/[?&]p=[^&]*/, ""))); }
+  renderSwitcher(s);
   if (s.configured === false) { location.href = "/setup"; return; }
   const color = STATE_COLORS[s.state] || "#48e0ff", live = LIVE.has(s.state), active = live || s.state === "PAUSE";
   document.documentElement.style.setProperty("--state", color);
@@ -1002,11 +1060,11 @@ function render(s) {
   $("task").textContent = s.task || "—";
   $("weight").innerHTML = s.job.weight_g ? `${s.job.weight_g.toFixed(1)}<small> ${t("g")}</small>` : "—";
   $("pred").innerHTML = s.job.prediction_s ? fmtDur(s.job.prediction_s / 60) : "—";
-  renderMoney(s);
+  renderMoney(s); renderTune(s);
   $("fils").innerHTML = (s.job.filaments || []).map((f) => `<div class="fil"><span class="sw" style="background:${esc(f.color)};color:${esc(f.color)}"></span><span>${esc(f.type)}</span><span class="t">${f.m ? f.m.toFixed(2) + " " + t("meters") : ""}</span><span class="g">${f.g ? f.g.toFixed(1) + " " + t("g") : ""}</span></div>`).join("");
   if (s.job.thumb && s.job.thumb_v !== thumbV) {
     thumbV = s.job.thumb_v;
-    const src = "/thumb.png?v=" + encodeURIComponent(thumbV);
+    const src = pq("/thumb.png?v=" + encodeURIComponent(thumbV));
     $("thumb").src = src; makeSilhouette(src);
     $("thumb").hidden = false; $("thumb-none").hidden = true;
   }
@@ -1149,6 +1207,78 @@ addEventListener("pointermove", () => {
 });
 if (new URLSearchParams(location.search).get("kiosk") === "1") setKiosk(true, false);
 
+/* ---------- fine control: temperatures, fans, AMS drying (may need Developer Mode) ---------- */
+const DRY_DEFAULT = { PLA: 50, PETG: 65, ABS: 80, ASA: 80, TPU: 65, PA: 80, PC: 80, PVA: 50 };
+function renderTune(s) {
+  const lockedT = (s.locked || []).includes("gcode_line"), lockedD = (s.locked || []).includes("ams_filament_drying");
+  document.querySelectorAll("#tune input, #tune button:not(.unlock)").forEach((el) => (el.disabled = lockedT));
+  document.querySelectorAll("#dry select, #dry input, #dry button").forEach((el) => (el.disabled = lockedD));
+  const lockHtml = `${esc(t("lockedText"))}<br><button class="unlock">${t("retry")}</button>`;
+  for (const [id, locked] of [["lock-tune", lockedT], ["lock-dry", lockedD]]) {
+    const box = $(id); box.hidden = !locked;
+    // re-render only on a language change, so the button isn't replaced under the cursor
+    if (locked && box.dataset.lang !== lang) { box.innerHTML = lockHtml; box.dataset.lang = lang; }
+  }
+  for (const k of ["nozzle", "bed"]) { const i = $("t-" + k); if (document.activeElement !== i) i.value = s.temps[k].tgt ?? ""; }
+  for (const k of ["part", "aux", "chamber"]) {
+    const r = document.querySelector(`[data-fan="${k}"]`), v = s.fans[k];
+    if (!r.matches(":active")) r.value = v ?? 0;
+    $("fv-" + k).textContent = v == null ? "—" : v + "%";
+  }
+  // drying: unit list, and the status of the selected unit
+  const sel = $("dry-unit"), keep = sel.value;
+  const opts = (s.ams || []).map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join("");
+  if (sel.dataset.k !== opts) { sel.innerHTML = opts; sel.dataset.k = opts; if (keep) sel.value = keep; }
+  $("dry").hidden = !(s.ams || []).length;
+  const u = (s.ams || []).find((x) => String(x.id) === sel.value);
+  $("dry-status").textContent = u && u.dry_min ? `${t("dryLeft")} ${fmtDur(u.dry_min).replace(/<[^>]+>/g, "")}` : "";
+}
+$("dry-unit").onchange = () => {
+  const u = S && (S.ams || []).find((x) => String(x.id) === $("dry-unit").value);
+  const tray = u && u.trays.find((x) => !x.empty);
+  const max = u && u.id >= 128 ? 85 : 65;  // AMS HT heats up to 85 °C, AMS 2 Pro to 65 °C
+  $("dry-temp").max = max;
+  if (tray) $("dry-temp").value = Math.min(DRY_DEFAULT[tray.type] || 55, max);
+};
+document.addEventListener("click", (e) => { if (e.target.closest(".unlock")) cmd("unlock"); });
+$("tune").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-target]"); if (!b) return;
+  e.preventDefault();
+  const v = +$("t-" + b.dataset.target).value;
+  if (S && ["RUNNING", "PAUSE"].includes(S.state) && !confirm(t("tempConfirm"))) return;
+  cmd("temp", { target: b.dataset.target, value: v });
+});
+$("tune").addEventListener("change", (e) => { const r = e.target.closest("[data-fan]"); if (r) cmd("fan", { fan: r.dataset.fan, pct: +r.value }); });
+$("dry-start").onclick = () => {
+  if (!confirm(t("dryConfirm"))) return;
+  const u = S && (S.ams || []).find((x) => String(x.id) === $("dry-unit").value), tray = u && u.trays.find((x) => !x.empty);
+  cmd("dry_start", { ams_id: +$("dry-unit").value, temp: +$("dry-temp").value, hours: +$("dry-hours").value, filament: tray ? tray.type : "" });
+};
+$("dry-stop").onclick = () => cmd("dry_stop", { ams_id: +$("dry-unit").value });
+
+/* ---------- several printers: switcher in the header ---------- */
+function renderSwitcher(s) {
+  const list = s.printers || [], box = $("printers");
+  box.hidden = list.length < 2;
+  if (list.length < 2) return;
+  const key = JSON.stringify(list) + s.id;
+  if (box.dataset.k === key) return;
+  box.dataset.k = key;
+  box.innerHTML = list.map((p) => `<button data-p="${esc(p.id)}" class="${p.id === s.id ? "on" : ""}">
+    <i class="d" style="background:${STATE_COLORS[p.state] || "#8890b5"};box-shadow:0 0 8px ${STATE_COLORS[p.state] || "#8890b5"}"></i>${esc(p.name)}
+    ${["RUNNING", "PAUSE", "PREPARE"].includes(p.state) ? `<small>${p.pct}%</small>` : ""}</button>`).join("");
+}
+$("printers").onclick = (e) => { const b = e.target.closest("button[data-p]"); if (b && b.dataset.p !== PID) switchPrinter(b.dataset.p); };
+function switchPrinter(id) {
+  PID = id;
+  try { localStorage.setItem("printer", id); } catch {}
+  const u = new URL(location.href); u.searchParams.set("p", id); history.replaceState(null, "", u);
+  // forget everything that belonged to the previous printer
+  prevState = null; prevErrKey = null; thumbV = null; pipSil = null; zoom.s = 1; applyZoom();
+  $("ams").dataset.k = ""; $("events").dataset.k = "";
+  stopCam(); startCam(); connect(); loadHistory();
+}
+
 /* ---------- payload: live cost estimate and "will the spool last" ---------- */
 const money = (v, cur) => (v == null ? "—" : `${cur || ""}${v.toFixed(2)}`);
 function renderMoney(s) {
@@ -1169,8 +1299,8 @@ let histTab = "log", histDays = "30", histData = null, statsData = null;
 const fmtDate = (ts) => new Date(ts * 1000).toLocaleString(loc(), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 async function loadHistory() {
   try {
-    histData = await (await fetch("/api/history")).json();
-    statsData = await (await fetch("/api/stats?days=" + histDays)).json();
+    histData = await (await fetch(pq("/api/history"))).json();
+    statsData = await (await fetch(pq("/api/stats?days=" + histDays))).json();
   } catch { return; }
   renderHistory();
 }
@@ -1280,8 +1410,10 @@ $("lang").onclick = (e) => {
   if (S) render(S);
   renderLock(); renderHistory();
 };
+let es = null;
 function connect() {
-  const es = new EventSource("/events");
+  if (es) es.close();
+  es = new EventSource(pq("/events"));
   es.onmessage = (e) => { try { render(JSON.parse(e.data)); } catch (err) { console.error(err); } };
   es.onerror = () => { $("pstate").textContent = t("serverDown"); document.documentElement.style.setProperty("--state", "#ff4d6a"); };
 }
@@ -1299,7 +1431,7 @@ function camRetryLater(fn) { $("cam-ph").hidden = false; $("cam-ph").textContent
 
 function startMjpeg() {
   camMode = "mjpeg"; vid.hidden = true; cam.hidden = false;
-  cam.src = "/stream.mjpg?t=" + Date.now();
+  cam.src = pq("/stream.mjpg?t=" + Date.now());
 }
 cam.onload = () => { $("cam-ph").hidden = true; camLabel(cam.naturalWidth, cam.naturalHeight, 15, "MJPEG"); };
 cam.onerror = () => { if (camMode === "mjpeg" && !document.hidden) camRetryLater(startMjpeg); };
@@ -1310,7 +1442,7 @@ async function startH264() {
   const ctrl = new AbortController();
   stopCam.abort = () => ctrl.abort();
   try {
-    const res = await fetch("/video.mp4?t=" + Date.now(), { signal: ctrl.signal });
+    const res = await fetch(pq("/video.mp4?t=" + Date.now()), { signal: ctrl.signal });
     const mime = `video/mp4; codecs="${res.headers.get("X-Codec") || "avc1.640029"}"`;
     if (!res.ok || !MS.isTypeSupported(mime)) throw new Error("unsupported " + res.status);
     const ms = new MS();
@@ -1371,7 +1503,7 @@ startCam();
 document.addEventListener("visibilitychange", () => { if (document.hidden) stopCam(); else startCam(); });
 
 $("fs").onclick = () => { const v = $("view"); document.fullscreenElement ? document.exitFullscreen() : v.requestFullscreen ? v.requestFullscreen() : v.webkitRequestFullscreen ? v.webkitRequestFullscreen() : vid.webkitEnterFullscreen && vid.webkitEnterFullscreen(); };
-$("snap").onclick = () => { const a = document.createElement("a"); a.href = "/snapshot.jpg?t=" + Date.now(); a.download = `h2s-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.jpg`; a.click(); };
+$("snap").onclick = () => { const a = document.createElement("a"); a.href = pq("/snapshot.jpg?t=" + Date.now()); a.download = `${(S && S.name) || "printer"}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.jpg`; a.click(); };
 $("b-light").onclick = () => cmd("light", { on: !(S && S.light) });
 $("b-pause").onclick = (e) => cmd(e.currentTarget.dataset.act || "pause");
 $("speeds").onclick = (e) => { const b = e.target.closest("button"); if (b && !b.disabled) cmd("speed", { level: +b.dataset.l }); };

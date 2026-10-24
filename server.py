@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""H2S Mission Control: local dashboard for a Bambu Lab printer.
+"""Mission Control: local dashboard for one or more Bambu Lab printers.
 
-Talks to the printer only over the LAN: MQTT (8883) for status and commands,
+Talks to each printer only over the LAN: MQTT (8883) for status and commands,
 RTSPS (322) for the camera via ffmpeg, implicit FTPS (990) for the job's .3mf
-(plate thumbnail, filament usage). Serves a single page plus SSE and MJPEG.
+(plate thumbnail, filament usage). Serves the pages plus SSE, fragmented MP4 and MJPEG.
 """
 import collections
 import concurrent.futures
@@ -13,6 +13,7 @@ import hmac
 import io
 import ipaddress
 import json
+import math
 import os
 import queue
 import re
@@ -28,6 +29,7 @@ import time
 import zipfile
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs
 
 import paho.mqtt.client as mqtt
 
@@ -35,22 +37,31 @@ from history import DEFAULT_COSTS, History, job_costs
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 CFG_PATH = os.path.join(BASE, "config.json")
-DEFAULTS = {"host": "", "serial": "", "access_code": "", "name": "Bambu", "port": 8790,
-            "password_hash": "", "session_secret": ""}
+DEFAULTS = {"port": 8790, "password_hash": "", "session_secret": "", "printers": []}
+PRINTER_KEYS = ("host", "serial", "access_code", "name", "locked_cmds")
+ACTIVE = ("PREPARE", "RUNNING", "PAUSE")
 
 
 def load_cfg():
     try:
         with open(CFG_PATH) as f:
             c = {**DEFAULTS, **json.load(f)}
-        c["costs"] = {**DEFAULT_COSTS, **(c.get("costs") or {})}
-        return c
     except FileNotFoundError:
-        return {**DEFAULTS, "costs": dict(DEFAULT_COSTS)}
+        c = dict(DEFAULTS)
+    c["costs"] = {**DEFAULT_COSTS, **(c.get("costs") or {})}
+    # Single-printer configs (before multi-printer support) keep the printer at the top level.
+    if c.get("host") and not c["printers"]:
+        c["printers"] = [{"id": "p1", **{k: c.get(k) for k in PRINTER_KEYS}}]
+    for k in PRINTER_KEYS:
+        c.pop(k, None)
+    for p in c["printers"]:
+        p.setdefault("locked_cmds", [])
+        p["name"] = p.get("name") or "Bambu"
+    return c
 
 
 def save_cfg(c):
-    # Written with 0600 from the start: the file holds the printer's access code.
+    # Written with 0600 from the start: the file holds the printers' access codes.
     tmp = CFG_PATH + ".tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
@@ -59,8 +70,9 @@ def save_cfg(c):
 
 
 cfg = load_cfg()
+cfg_lock = threading.Lock()
 hist_db = History(os.path.join(BASE, "state", "history.sqlite"))
-ACTIVE = ("PREPARE", "RUNNING", "PAUSE")
+PORT = int(os.environ.get("PORT") or cfg.get("port") or 8790)
 
 try:
     with open(os.path.join(BASE, "data", "hms.json"), encoding="utf-8") as _f:
@@ -76,12 +88,6 @@ def hms_text(code):
 
 def error_text(code_hex):
     return HMS_DB["error"].get(code_hex)
-cfg_changed = threading.Event()
-PORT = int(os.environ.get("PORT") or cfg.get("port") or 8790)
-
-
-def configured():
-    return bool(cfg["host"] and cfg["serial"] and cfg["access_code"])
 
 
 # Prefer a standalone ffmpeg dropped into ./bin (the no-Homebrew route), else whatever is on PATH.
@@ -91,63 +97,6 @@ FFMPEG = _local_ff if os.path.exists(_local_ff) else "ffmpeg"
 # -timeout (µs) makes ffmpeg give up when the printer silently stops sending, instead of hanging forever.
 FF_IN = ["-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-tls_verify", "0", "-timeout", "10000000"]
 
-
-class Relay:
-    """Loopback TCP relay to the printer's RTSPS port.
-
-    macOS blocks LAN access for binaries started by launchd until the user approves them, and a
-    command-line ffmpeg never shows up in Privacy & Security > Local Network to be approved. So
-    ffmpeg talks to 127.0.0.1 and this process (which does have LAN access) forwards the bytes.
-    TLS stays end-to-end between ffmpeg and the printer; the relay never decrypts anything.
-    """
-
-    def __init__(self):
-        self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.srv.bind(("127.0.0.1", 0))
-        self.srv.listen(8)
-        self.port = self.srv.getsockname()[1]
-        threading.Thread(target=self._accept, daemon=True).start()
-
-    def _accept(self):
-        while True:
-            conn, _ = self.srv.accept()
-            threading.Thread(target=self._handle, args=(conn,), daemon=True).start()
-
-    def _handle(self, conn):
-        try:
-            up = socket.create_connection((cfg["host"], 322), timeout=10)
-        except OSError:
-            conn.close()
-            return
-        up.settimeout(None)
-        threading.Thread(target=self._pipe, args=(up, conn), daemon=True).start()
-        self._pipe(conn, up)
-
-    @staticmethod
-    def _pipe(src, dst):
-        try:
-            while True:
-                data = src.recv(65536)
-                if not data:
-                    break
-                dst.sendall(data)
-        except OSError:
-            pass
-        finally:
-            # Closing both ends tears the printer session down as soon as ffmpeg goes away.
-            for sock in (src, dst):
-                try:
-                    sock.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
-                sock.close()
-
-
-relay = Relay()
-
-
-def rtsp_url():
-    return f"rtsps://bblp:{cfg['access_code']}@127.0.0.1:{relay.port}/streaming/live/1"
 
 # Every user-facing string goes out as {"ru": ..., "en": ...}; the page picks the language.
 def L(ru, en):
@@ -194,22 +143,6 @@ def state_name(state):
     return STATES.get(state, L(state, state))
 
 
-lock = threading.Lock()
-raw = {}
-mqtt_ok = False
-last_msg = 0.0
-dirty = threading.Event()
-events = collections.deque(maxlen=60)
-hist = collections.deque(maxlen=360)  # one sample per 5 s -> 30 min
-job = {"key": None, "started_at": None, "thumb": None, "meta": None, "fetched_for": None, "fetch_err_at": 0}
-prev = {"state": None, "stage": None, "err": None, "hms": ()}
-
-
-def log_event(kind, text):
-    events.appendleft({"t": time.time(), "kind": kind, "text": text})
-    dirty.set()
-
-
 # ---------- state merge ----------
 
 def _merge_list(dst, src):
@@ -238,7 +171,7 @@ def merge(dst, src):
             dst[k] = v
 
 
-# ---------- normalization ----------
+# ---------- normalization helpers ----------
 
 def _num(v, default=None):
     try:
@@ -266,488 +199,80 @@ def _hms_code(h):
     return f"{a >> 16:04X}_{a & 0xFFFF:04X}_{c >> 16:04X}_{c & 0xFFFF:04X}"
 
 
-def build_view():
-    p = raw
-    dev = p.get("device") or {}
-    online = mqtt_ok and time.time() - last_msg < 90
-    state = p.get("gcode_state") or "IDLE"
-    if not configured():
-        state = "UNCONFIGURED"
-    elif not online:
-        state = "OFFLINE"
-    stg = p.get("stg_cur")
-    stg = int(stg) if isinstance(stg, (int, float)) or (isinstance(stg, str) and stg.lstrip("-").isdigit()) else -1
-    if state == "RUNNING" and stg in (0, -1, 255):
-        stage = STAGES[0]
-    elif state in ("RUNNING", "PREPARE", "PAUSE"):
-        stage = stage_name(stg)
-    else:
-        stage = state_name(state)
+# ---------- camera plumbing (per printer) ----------
 
-    noz_c, noz_t = _num(p.get("nozzle_temper")), _num(p.get("nozzle_target_temper"))
-    ext = ((dev.get("extruder") or {}).get("info") or [{}])[0]
-    if ext.get("temp") is not None:
-        noz_c, noz_t = _packed(ext["temp"])
-    bed_c, bed_t = _num(p.get("bed_temper")), _num(p.get("bed_target_temper"))
-    if (dev.get("bed") or {}).get("info", {}).get("temp") is not None:
-        bed_c, bed_t = _packed(dev["bed"]["info"]["temp"])
-    ch = (dev.get("ctc") or {}).get("info", {}).get("temp")
-    if ch is None:
-        ch = p.get("chamber_temper")
-    ch_c, ch_t = (_packed(ch) if _num(ch) is not None and _num(ch) > 0xFFFF else (_num(ch), None))
+class Relay:
+    """Loopback TCP relay to one printer's RTSPS port.
 
-    ams_raw = p.get("ams") or {}
-    # H2 series: extruder "snow" = (ams_id << 8) | slot, 0xFFFF = nothing loaded.
-    # Older models: ams.tray_now = ams_id * 4 + slot (or 254/255 for the external spool / none).
-    snow = ext.get("snow")
-    if isinstance(snow, int):
-        loaded = None if snow == 0xFFFF else (snow >> 8, snow & 0xFF)
-    else:
-        tn = int(_num(ams_raw.get("tray_now"), 255))
-        loaded = (tn, 0) if tn >= 128 else (tn // 4, tn % 4)
-    units = []
-    for u in ams_raw.get("ams") or []:
-        uid = int(u.get("id", 0))
-        trays = []
-        for t in u.get("tray") or []:
-            tid = int(t.get("id", 0))
-            empty = not t.get("tray_type")
-            col = (t.get("tray_color") or "00000000")[:6]
-            trays.append({
-                "slot": tid + 1, "empty": empty, "type": t.get("tray_type") or "",
-                "brand": t.get("tray_sub_brands") or "", "color": "#" + col,
-                "remain": t.get("remain") if isinstance(t.get("remain"), int) else -1,
-                "active": loaded == (uid, tid) and not empty,
-                "tmin": t.get("nozzle_temp_min"), "tmax": t.get("nozzle_temp_max"),
-            })
-        units.append({
-            "id": uid, "name": "AMS HT" if uid >= 128 else f"AMS {uid + 1}",
-            "humidity": _num(u.get("humidity_raw")), "humidity_idx": _num(u.get("humidity")),
-            "temp": _num(u.get("temp")), "dry_min": int(_num(u.get("dry_time"), 0) or 0), "trays": trays,
-        })
-    ext_spool = None
-    for v in p.get("vir_slot") or []:
-        if v.get("tray_type"):
-            ext_spool = {"type": v["tray_type"], "brand": v.get("tray_sub_brands") or "",
-                         "color": "#" + (v.get("tray_color") or "00000000")[:6],
-                         "active": loaded is not None and loaded[0] >= 254}
+    macOS blocks LAN access for binaries started by launchd until the user approves them, and a
+    command-line ffmpeg never shows up in Privacy & Security > Local Network to be approved. So
+    ffmpeg talks to 127.0.0.1 and this process (which does have LAN access) forwards the bytes.
+    TLS stays end-to-end between ffmpeg and the printer; the relay never decrypts anything.
+    """
 
-    lights = {l.get("node"): l.get("mode") for l in p.get("lights_report") or []}
-    xc = p.get("xcam") or {}
-    rem = _num(p.get("mc_remaining_time"))
-    spd = int(_num(p.get("spd_lvl"), 2) or 2)
-    hms = [_hms_code(h) for h in p.get("hms") or []]
-    perr = int(_num(p.get("print_error"), 0) or 0)
-    wifi = p.get("wifi_signal") or ""
-    meta = job.get("meta") or {}
+    def __init__(self, pr):
+        self.pr = pr
+        self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.srv.bind(("127.0.0.1", 0))
+        self.srv.listen(8)
+        self.port = self.srv.getsockname()[1]
+        threading.Thread(target=self._accept, daemon=True).start()
 
-    return {
-        "name": cfg["name"] or "Bambu", "online": online, "configured": configured(), "ts": time.time(),
-        "state": state, "state_txt": state_name(state), "stage": stage, "stage_id": stg,
-        "pct": int(_num(p.get("mc_percent"), 0) or 0), "remaining_min": rem,
-        "eta": (time.time() + rem * 60) if rem and state in ("RUNNING", "PAUSE", "PREPARE") else None,
-        "layer": int(_num(p.get("layer_num"), 0) or 0), "layers": int(_num(p.get("total_layer_num"), 0) or 0),
-        "task": p.get("subtask_name") or "", "plate": p.get("plate_idx"),
-        "print_type": p.get("print_type"),
-        "temps": {"nozzle": {"cur": noz_c, "tgt": noz_t}, "bed": {"cur": bed_c, "tgt": bed_t},
-                  "chamber": {"cur": ch_c, "tgt": ch_t}},
-        "fans": {"part": _fan(p.get("cooling_fan_speed")), "aux": _fan(p.get("big_fan1_speed")),
-                 "chamber": _fan(p.get("big_fan2_speed")), "heatbreak": _fan(p.get("heatbreak_fan_speed"))},
-        "speed": {"lvl": spd, "name": SPEEDS.get(spd, L(str(spd), str(spd))), "mag": _num(p.get("spd_mag"))},
-        "wifi": _num(wifi.replace("dBm", "")) if wifi else None,
-        "light": lights.get("chamber_light") == "on",
-        "ams": units, "ext": ext_spool,
-        "nozzle": {"type": p.get("nozzle_type"), "diameter": p.get("nozzle_diameter")},
-        "ai": {"spaghetti": xc.get("spaghetti_detector"), "first_layer": xc.get("first_layer_inspector"),
-               "halt": xc.get("print_halt"), "sensitivity": xc.get("halt_print_sensitivity")},
-        "errors": {"print": f"{perr:08X}" if perr else None, "print_text": error_text(f"{perr:08X}") if perr else None,
-                   "hms": [{"code": c, "text": hms_text(c)} for c in hms]},
-        "job": {"started_at": job.get("started_at"), "thumb": bool(job.get("thumb")),
-                "thumb_v": job.get("fetched_for") or "", "weight_g": meta.get("weight"),
-                "prediction_s": meta.get("prediction"), "filaments": meta.get("filaments") or [],
-                "cost": live_costs(meta) if state in ACTIVE or state == "FINISH" else None,
-                "forecast": spool_forecast(meta, units) if state in ACTIVE else []},
-        "hist": list(hist)[-240:],
-        "events": list(events)[:40],
-    }
-
-
-def _job_key():
-    return f"{raw.get('subtask_id') or raw.get('subtask_name')}#{raw.get('plate_idx')}"
-
-
-def _elapsed_guess():
-    """Seconds since the print started, when we did not see it start (server launched mid-print)."""
-    meta, rem = job.get("meta") or {}, _num(raw.get("mc_remaining_time"))
-    if meta.get("prediction") and rem is not None:
-        return max(0.0, meta["prediction"] - rem * 60)
-    return 0.0
-
-
-def track_job():
-    """Opens/closes the history record for the current print. Called under lock."""
-    p, state = raw, raw.get("gcode_state")
-    if not p.get("subtask_name") or not cfg["serial"]:
-        return
-    key = _job_key()
-    if state in ACTIVE and job.get("db_key") != key:
-        jid = hist_db.open_job(cfg["serial"], key)
-        if jid:  # server restarted during this print: continue the same record
-            job["started_at"] = hist_db.get(jid)["started"]
-        else:
-            seen_start = prev.get("seen_start") == key
-            started = job.get("started_at") if seen_start and job.get("started_at") else time.time() - _elapsed_guess()
-            jid = hist_db.start(cfg["serial"], key, p.get("subtask_name"), p.get("plate_idx"), started, not seen_start)
-            job["started_at"] = started
-        job.update(db_id=jid, db_key=key)
-        remember_meta()
-    elif state in ("FINISH", "FAILED", "IDLE") and job.get("db_id"):
-        finish_job(job["db_id"], {"FINISH": "FINISH", "FAILED": "FAILED"}.get(state, "CANCELLED"))
-        job.update(db_id=None, db_key=None)
-    elif state in ("FINISH", "FAILED") and not job.get("db_id"):
-        jid = hist_db.open_job(cfg["serial"], key)  # finished while the server was down
-        if jid:
-            finish_job(jid, state)
-
-
-def remember_meta():
-    """Copy slicer info and the plate render into the open history record once both are known."""
-    jid, meta = job.get("db_id"), job.get("meta")
-    if not jid or not meta or job.get("meta_saved") == jid:
-        return
-    fields = {"prediction_s": meta.get("prediction"), "weight_g": meta.get("weight"),
-              "filaments": meta.get("filaments") or [], "layers": int(_num(raw.get("total_layer_num"), 0) or 0)}
-    if job.get("thumb"):
-        fields["thumb"] = job["thumb"]
-    rec = hist_db.get(jid)
-    if rec and rec["start_estimated"]:
-        fields["started"] = time.time() - _elapsed_guess()
-        job["started_at"] = fields["started"]
-    hist_db.update(jid, **fields)
-    job["meta_saved"] = jid
-
-
-def finish_job(jid, result):
-    rec = hist_db.get(jid)
-    if not rec:
-        return
-    ended = time.time()
-    pct = 100 if result == "FINISH" else int(_num(raw.get("mc_percent"), 0) or 0)
-    filaments = json.loads(rec["filaments"] or "[]")
-    fil, kwh, cost_e = job_costs(cfg["costs"], filaments, pct / 100, rec["started"], ended)
-    hist_db.update(jid, ended=ended, result=result, pct=pct, energy_kwh=kwh, cost_filament=fil,
-                   cost_energy=cost_e, currency=cfg["costs"].get("currency"))
-    log_event("job", L(f"Записано в историю: {rec['task']}", f"Saved to history: {rec['task']}"))
-
-    def grab():  # the final photo; ffmpeg can take a few seconds, so off the MQTT thread
+    def close(self):
         try:
-            img = camera.snapshot()
-            if img:
-                hist_db.update(jid, snapshot=img)
-        except Exception:  # noqa: BLE001 - a missing photo must not break anything
+            self.srv.close()
+        except OSError:
             pass
-    threading.Thread(target=grab, daemon=True).start()
 
-
-def live_costs(meta):
-    """Estimated cost of the whole current print, for the payload card."""
-    if not meta or not job.get("started_at"):
-        return None
-    pred = meta.get("prediction") or 0
-    fil, kwh, cost_e = job_costs(cfg["costs"], meta.get("filaments") or [], 1.0,
-                                 job["started_at"], job["started_at"] + pred)
-    if fil is None and cost_e is None:
-        return {"known": False, "currency": cfg["costs"].get("currency")}
-    return {"known": True, "filament": fil, "energy": cost_e, "kwh": kwh,
-            "total": round((fil or 0) + (cost_e or 0), 2), "currency": cfg["costs"].get("currency")}
-
-
-def spool_forecast(meta, units):
-    """Will the loaded spools last? Per filament of the current print: grams left vs grams still needed."""
-    if not meta or not meta.get("filaments"):
-        return []
-    trays = {}
-    for u in raw.get("ams", {}).get("ams") or []:
-        for t in u.get("tray") or []:
-            trays[(int(u.get("id", 0)), int(t.get("id", 0)))] = t
-    mapping = raw.get("mapping") or []
-    done = (_num(raw.get("mc_percent"), 0) or 0) / 100
-    out = []
-    for f in meta["filaments"]:
-        idx = (f.get("id") or 0) - 1
-        v = mapping[idx] if 0 <= idx < len(mapping) else None
-        if v is None or v == 0xFFFF:
-            continue
-        slot = (v >> 8, v & 0xFF) if v >= 256 else (v // 4, v % 4)  # H2: (ams<<8)|slot; older: ams*4+slot
-        t = trays.get(slot)
-        if not t:
-            continue
-        need = round((f.get("g") or 0) * (1 - done), 1)
-        remain = t.get("remain") if isinstance(t.get("remain"), int) else -1
-        spool_g = _num(t.get("tray_weight"), 0) or 1000  # Bambu spools are 1 kg unless the RFID says otherwise
-        left = round(spool_g * remain / 100, 0) if remain >= 0 else None
-        status = "unknown" if left is None else "ok" if left >= need * 1.1 else "short"
-        out.append({"type": f.get("type"), "color": f.get("color"), "need_g": need, "left_g": left,
-                    "status": status, "ams": "AMS HT" if slot[0] >= 128 else f"AMS {slot[0] + 1}", "slot": slot[1] + 1})
-    return out
-
-
-def track_transitions():
-    """Called under lock after each MQTT message: emits timeline events."""
-    p = raw
-    state = p.get("gcode_state")
-    key = (p.get("subtask_id") or p.get("subtask_name"), p.get("plate_idx"))
-    if state and state != prev["state"]:
-        if state in ("PREPARE", "RUNNING") and prev["state"] is not None and prev["state"] not in ACTIVE:
-            prev["seen_start"] = _job_key()
-        if prev["state"] is not None:
-            a, b = state_name(prev["state"]), state_name(state)
-            log_event("state", L(f"{a['ru']} → {b['ru']}", f"{a['en']} → {b['en']}"))
-        if state in ("PREPARE", "RUNNING") and prev["state"] not in ("PREPARE", "RUNNING", "PAUSE", None):
-            job["started_at"] = time.time()
-        prev["state"] = state
-    if key != job["key"]:
-        job.update(key=key, thumb=None, meta=None)
-        if p.get("subtask_name"):
-            log_event("job", L(f"Задание: {p.get('subtask_name')}", f"Job: {p.get('subtask_name')}"))
-    stg = p.get("stg_cur")
-    if stg != prev["stage"]:
-        if prev["stage"] is not None and isinstance(stg, int) and stg not in (0, 255, -1):
-            log_event("stage", stage_name(stg))
-        prev["stage"] = stg
-    err = p.get("print_error") or 0
-    if err != prev["err"]:
-        if err:
-            code = f"{int(err):08X}"
-            txt = error_text(code) or L("", "")
-            log_event("error", L(f"Ошибка печати {code}. {txt['ru']}".strip(" ."), f"Print error {code}. {txt['en']}".strip(" .")))
-        prev["err"] = err
-    hms = tuple(_hms_code(h) for h in p.get("hms") or [])
-    if hms != prev["hms"]:
-        for code in set(hms) - set(prev["hms"]):
-            txt = hms_text(code) or L("", "")
-            log_event("error", L(f"HMS {code}. {txt['ru']}".strip(" ."), f"HMS {code}. {txt['en']}".strip(" .")))
-        prev["hms"] = hms
-    track_job()
-
-
-# ---------- MQTT ----------
-
-client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"mission-{os.getpid()}")
-seq = [0]
-
-
-def send(payload):
-    seq[0] += 1
-    for v in payload.values():
-        v["sequence_id"] = str(seq[0])
-    client.publish(f"device/{cfg['serial']}/request", json.dumps(payload))
-
-
-def on_connect(c, u, flags, rc, props=None):
-    global mqtt_ok
-    mqtt_ok = not rc.is_failure
-    if mqtt_ok:
-        c.subscribe(f"device/{cfg['serial']}/report")
-        send({"pushing": {"command": "pushall"}})
-        log_event("link", L("Связь с принтером установлена", "Connected to printer"))
-    else:
-        log_event("error", L(f"MQTT отказ: {rc}", f"MQTT refused: {rc}"))
-
-
-def on_disconnect(c, u, flags, rc, props=None):
-    global mqtt_ok
-    mqtt_ok = False
-    log_event("link", L("Связь с принтером потеряна", "Printer connection lost"))
-
-
-def on_message(c, u, m):
-    global last_msg
-    try:
-        d = json.loads(m.payload)
-    except ValueError:
-        return
-    last_msg = time.time()
-    with lock:
-        for section in ("print", "system"):
-            body = d.get(section)
-            if not isinstance(body, dict):
-                continue
-            if body.get("result") and body.get("command") not in ("push_status", None):
-                ok = str(body.get("result")).lower() == "success"
-                why = body.get("reason") or body.get("err_code") or ""
-                c = body["command"]
-                log_event("ack" if ok else "error",
-                          L(f"Команда {c}: {'выполнена' if ok else 'отклонена'} {why}".strip(),
-                            f"Command {c}: {'done' if ok else 'rejected'} {why}".strip()))
-            if section == "print":
-                merge(raw, body)
-        track_transitions()
-    dirty.set()
-
-
-def reset_state():
-    global last_msg
-    with lock:
-        raw.clear()
-        hist.clear()
-        job.update(key=None, started_at=None, thumb=None, meta=None, fetched_for=None, fetch_err_at=0,
-                   db_id=None, db_key=None, meta_saved=None)
-        prev.update(state=None, stage=None, err=None, hms=(), seen_start=None)
-        last_msg = 0.0
-    dirty.set()
-
-
-def apply_cfg(new):
-    """Save settings; reconnect everything only if the printer connection itself changed."""
-    reconnect = any(new.get(k, cfg[k]) != cfg[k] for k in ("host", "serial", "access_code"))
-    cfg.update(new)
-    save_cfg(cfg)
-    if not reconnect:
-        dirty.set()
-        return
-    reset_state()
-    camera.restart()
-    h264.restart()
-    log_event("link", L(f"Настройки сохранены: {cfg['name']} ({cfg['host']})",
-                        f"Settings saved: {cfg['name']} ({cfg['host']})"))
-    cfg_changed.set()
-    client.disconnect()  # makes loop_forever return, mqtt_loop reconnects with the new settings
-
-
-def mqtt_loop():
-    client.tls_set(cert_reqs=ssl.CERT_NONE)
-    client.tls_insecure_set(True)
-    client.on_connect, client.on_disconnect, client.on_message = on_connect, on_disconnect, on_message
-    client.reconnect_delay_set(2, 30)
-    while True:
-        if not configured():
-            cfg_changed.wait()
-        cfg_changed.clear()
-        host = cfg["host"]
-        client.username_pw_set("bblp", cfg["access_code"])
-        try:
-            client.connect(host, 8883, 30)
-            client.loop_forever(retry_first_connection=True)
-        except (OSError, ssl.SSLError) as e:
-            log_event("error", L(f"Нет связи с {host}: {e}", f"Cannot reach {host}: {e}"))
-            cfg_changed.wait(10)
-
-
-def sampler():
-    """History samples every 5 s, a full refresh every 10 min, and the job fetcher trigger."""
-    n = 0
-    while True:
-        time.sleep(5)
-        n += 1
-        with lock:
-            v = build_view()
-        t = v["temps"]
-        hist.append([round(time.time()), t["nozzle"]["cur"], t["bed"]["cur"], t["chamber"]["cur"], v["pct"]])
-        dirty.set()
-        if n % 120 == 0 and mqtt_ok:
-            send({"pushing": {"command": "pushall"}})
-        if v["task"] and job["fetched_for"] != _job_key_str() and time.time() - job["fetch_err_at"] > 120:
-            threading.Thread(target=fetch_job, daemon=True).start()
-
-
-# ---------- FTPS: plate thumbnail + slice info ----------
-
-class ImplicitFTPS(ftplib.FTP_TLS):
-    def __init__(self, *a, **k):
-        super().__init__(*a, **k)
-        self._sock = None
-
-    @property
-    def sock(self):
-        return self._sock
-
-    @sock.setter
-    def sock(self, v):
-        if v is not None and not isinstance(v, ssl.SSLSocket):
-            v = self.context.wrap_socket(v)
-        self._sock = v
-
-    def ntransfercmd(self, cmd, rest=None):
-        conn, size = ftplib.FTP.ntransfercmd(self, cmd, rest)
-        if self._prot_p:
-            conn = self.context.wrap_socket(conn, server_hostname=self.host, session=self.sock.session)
-        return conn, size
-
-
-def _job_key_str():
-    return f"{raw.get('subtask_name')}#{raw.get('plate_idx')}"
-
-
-def fetch_job():
-    with lock:
-        name, plate, key = raw.get("subtask_name") or "", int(_num(raw.get("plate_idx"), 1) or 1), _job_key_str()
-    if job.get("_busy"):
-        return
-    job["_busy"] = True
-    try:
-        ctx = ssl.create_default_context()
-        ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
-        f = ImplicitFTPS(context=ctx)
-        f.connect(cfg["host"], 990, timeout=20)
-        f.login("bblp", cfg["access_code"])
-        f.prot_p()
-        files = []
-        for d in ("/cache", "/"):
+    def _accept(self):
+        while True:
             try:
-                files += [x for x in f.nlst(d) if x.endswith(".3mf")]
-            except ftplib.error_perm:
-                pass
-        stem = name[:-4] if name.endswith(".3mf") else name
-        match = [x for x in files if os.path.basename(x).startswith(stem)] if stem else []
-        if not match:
-            raise FileNotFoundError(f"no .3mf for {name}")
-        buf = io.BytesIO()
-        f.retrbinary(f"RETR {match[0]}", buf.write)
-        f.quit()
-        z = zipfile.ZipFile(buf)
-        names = set(z.namelist())
-        thumb = None
-        for cand in (f"Metadata/plate_{plate}.png", "Metadata/plate_1.png"):
-            if cand in names:
-                thumb = z.read(cand)
-                break
-        meta = {}
-        if "Metadata/slice_info.config" in names:
-            root = ET.fromstring(z.read("Metadata/slice_info.config"))
-            for pl in root.iter("plate"):
-                md = {m.get("key"): m.get("value") for m in pl.findall("metadata")}
-                if str(md.get("index", "1")) != str(plate):
-                    continue
-                meta = {"prediction": _num(md.get("prediction")), "weight": _num(md.get("weight")),
-                        "filaments": [{"id": int(_num(fl.get("id"), 0) or 0), "type": fl.get("type"), "color": fl.get("color"),
-                                       "g": _num(fl.get("used_g")), "m": _num(fl.get("used_m"))}
-                                      for fl in pl.findall("filament")]}
-        with lock:
-            job.update(thumb=thumb, meta=meta, fetched_for=key)
-            remember_meta()
-        kb = len(buf.getvalue()) // 1024
-        log_event("job", L(f"Загружено превью модели ({kb} КБ .3mf)", f"Model preview loaded ({kb} KB .3mf)"))
-    except Exception as e:  # noqa: BLE001 - printer FTP is flaky, never let it kill the thread
-        job["fetch_err_at"] = time.time()
-        log_event("error", L(f"Превью не загружено: {e}", f"Preview not loaded: {e}"))
-    finally:
-        job["_busy"] = False
-        dirty.set()
+                conn, _ = self.srv.accept()
+            except OSError:
+                return  # closed: printer removed
+            threading.Thread(target=self._handle, args=(conn,), daemon=True).start()
 
+    def _handle(self, conn):
+        try:
+            up = socket.create_connection((self.pr.conf["host"], 322), timeout=10)
+        except OSError:
+            conn.close()
+            return
+        up.settimeout(None)
+        threading.Thread(target=self._pipe, args=(up, conn), daemon=True).start()
+        self._pipe(conn, up)
 
-# ---------- camera: one shared ffmpeg per format, fanned out to all viewers ----------
+    @staticmethod
+    def _pipe(src, dst):
+        try:
+            while True:
+                data = src.recv(65536)
+                if not data:
+                    break
+                dst.sendall(data)
+        except OSError:
+            pass
+        finally:
+            # Closing both ends tears the printer session down as soon as ffmpeg goes away.
+            for sock in (src, dst):
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                sock.close()
+
 
 class Camera:
     """MJPEG re-encode: works in every browser, used as the fallback and for snapshots."""
 
-    def __init__(self):
+    out_args = ["-an", "-vf", "scale=1280:-2,fps=15", "-q:v", "6", "-f", "mjpeg", "pipe:1"]
+
+    def __init__(self, pr):
+        self.pr = pr
         self.cond = threading.Condition()
         self.frame, self.frame_t = None, 0.0
         self.clients, self.proc, self.idle_since, self.started_at = 0, None, time.time(), 0.0
         threading.Thread(target=self._watch, daemon=True).start()
-
-    out_args = ["-an", "-vf", "scale=1280:-2,fps=15", "-q:v", "6", "-f", "mjpeg", "pipe:1"]
 
     def restart(self):
         """Drop the stream so the watcher reopens it with the current settings."""
@@ -755,10 +280,10 @@ class Camera:
         self.frame = None
 
     def _start(self):
-        if not configured():
+        if not self.pr.configured() or self.pr.stopped:
             return
         self.started_at = time.time()
-        self.proc = subprocess.Popen([FFMPEG, *FF_IN, "-i", rtsp_url(), *self.out_args],
+        self.proc = subprocess.Popen([FFMPEG, *FF_IN, "-i", self.pr.rtsp_url(), *self.out_args],
                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
         threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
 
@@ -782,7 +307,7 @@ class Camera:
                 buf = b""
 
     def _watch(self):
-        while True:
+        while not self.pr.stopped:
             time.sleep(2)
             alive = self.proc is not None and self.proc.poll() is None
             if self.clients > 0 and not alive:
@@ -792,6 +317,7 @@ class Camera:
                 self._stop(kill=True)
             elif self.clients == 0 and alive and time.time() - self.idle_since > 20:
                 self._stop()
+        self._stop(kill=True)
 
     def _stop(self, kill=False):
         proc, self.proc = self.proc, None
@@ -813,9 +339,9 @@ class Camera:
     def snapshot(self):
         if self.frame and time.time() - self.frame_t < 3:
             return self.frame
-        if not configured():
+        if not self.pr.configured():
             return None
-        r = subprocess.run([FFMPEG, *FF_IN, "-i", rtsp_url(), "-frames:v", "1", "-f", "mjpeg", "pipe:1"],
+        r = subprocess.run([FFMPEG, *FF_IN, "-i", self.pr.rtsp_url(), "-frames:v", "1", "-f", "mjpeg", "pipe:1"],
                            capture_output=True, timeout=25)
         return r.stdout or None
 
@@ -841,9 +367,9 @@ class H264Camera(Camera):
     out_args = ["-an", "-c:v", "copy", "-f", "mp4",
                 "-movflags", "frag_keyframe+empty_moov+default_base_moof", "pipe:1"]
 
-    def __init__(self):
+    def __init__(self, pr):
         self.init, self.codec, self.seq = None, None, 0
-        super().__init__()
+        super().__init__(pr)
 
     def restart(self):
         super().restart()
@@ -891,8 +417,564 @@ def _avc_codec(moov):
     return "avc1." + moov[i + 5:i + 8].hex()
 
 
-camera = Camera()
-h264 = H264Camera()
+# ---------- FTPS: plate thumbnail + slice info ----------
+
+class ImplicitFTPS(ftplib.FTP_TLS):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self._sock = None
+
+    @property
+    def sock(self):
+        return self._sock
+
+    @sock.setter
+    def sock(self, v):
+        if v is not None and not isinstance(v, ssl.SSLSocket):
+            v = self.context.wrap_socket(v)
+        self._sock = v
+
+    def ntransfercmd(self, cmd, rest=None):
+        conn, size = ftplib.FTP.ntransfercmd(self, cmd, rest)
+        if self._prot_p:
+            conn = self.context.wrap_socket(conn, server_hostname=self.host, session=self.sock.session)
+        return conn, size
+
+
+# ---------- one printer ----------
+
+class Printer:
+    """Everything that belongs to one printer: MQTT link, state, cameras, timeline, current job."""
+
+    def __init__(self, conf):
+        self.conf = conf  # the dict inside cfg["printers"], edited in place by the settings page
+        self.lock = threading.Lock()
+        self.raw = {}
+        self.mqtt_ok, self.last_msg, self.stopped = False, 0.0, False
+        self.dirty = threading.Event()
+        self.cfg_changed = threading.Event()
+        self.events = collections.deque(maxlen=60)
+        self.hist = collections.deque(maxlen=360)  # one sample per 5 s -> 30 min
+        self.job = {"key": None, "started_at": None, "thumb": None, "meta": None, "fetched_for": None, "fetch_err_at": 0}
+        self.prev = {"state": None, "stage": None, "err": None, "hms": ()}
+        self.sse_clients = []
+        self.seq = 0
+        self.relay = Relay(self)
+        self.camera = Camera(self)
+        self.h264 = H264Camera(self)
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"mission-{os.getpid()}-{conf['id']}")
+        for target in (self.mqtt_loop, self.sampler, self.broadcaster):
+            threading.Thread(target=target, daemon=True).start()
+
+    @property
+    def id(self):
+        return self.conf["id"]
+
+    def configured(self):
+        c = self.conf
+        return bool(c.get("host") and c.get("serial") and c.get("access_code"))
+
+    def rtsp_url(self):
+        return f"rtsps://bblp:{self.conf['access_code']}@127.0.0.1:{self.relay.port}/streaming/live/1"
+
+    def log(self, kind, text):
+        self.events.appendleft({"t": time.time(), "kind": kind, "text": text})
+        self.dirty.set()
+
+    def stop(self):
+        """Printer removed in settings: drop the link, the cameras and the threads."""
+        self.stopped = True
+        self.cfg_changed.set()
+        self.camera._stop(kill=True)
+        self.h264._stop(kill=True)
+        self.relay.close()
+        try:
+            self.client.disconnect()
+        except Exception:  # noqa: BLE001 - never connected is fine
+            pass
+
+    # ----- view -----
+
+    def summary(self):
+        """Tiny status for the printer switcher; read without the lock (plain dict reads)."""
+        p = self.raw
+        online = self.mqtt_ok and time.time() - self.last_msg < 90
+        state = p.get("gcode_state") or "IDLE"
+        if not self.configured():
+            state = "UNCONFIGURED"
+        elif not online:
+            state = "OFFLINE"
+        return {"id": self.id, "name": self.conf["name"], "state": state, "pct": int(_num(p.get("mc_percent"), 0) or 0)}
+
+    def build_view(self):
+        p = self.raw
+        dev = p.get("device") or {}
+        online = self.mqtt_ok and time.time() - self.last_msg < 90
+        state = p.get("gcode_state") or "IDLE"
+        if not self.configured():
+            state = "UNCONFIGURED"
+        elif not online:
+            state = "OFFLINE"
+        stg = p.get("stg_cur")
+        stg = int(stg) if isinstance(stg, (int, float)) or (isinstance(stg, str) and stg.lstrip("-").isdigit()) else -1
+        if state == "RUNNING" and stg in (0, -1, 255):
+            stage = STAGES[0]
+        elif state in ACTIVE:
+            stage = stage_name(stg)
+        else:
+            stage = state_name(state)
+
+        noz_c, noz_t = _num(p.get("nozzle_temper")), _num(p.get("nozzle_target_temper"))
+        ext = ((dev.get("extruder") or {}).get("info") or [{}])[0]
+        if ext.get("temp") is not None:
+            noz_c, noz_t = _packed(ext["temp"])
+        bed_c, bed_t = _num(p.get("bed_temper")), _num(p.get("bed_target_temper"))
+        if (dev.get("bed") or {}).get("info", {}).get("temp") is not None:
+            bed_c, bed_t = _packed(dev["bed"]["info"]["temp"])
+        ch = (dev.get("ctc") or {}).get("info", {}).get("temp")
+        if ch is None:
+            ch = p.get("chamber_temper")
+        ch_c, ch_t = (_packed(ch) if _num(ch) is not None and _num(ch) > 0xFFFF else (_num(ch), None))
+
+        ams_raw = p.get("ams") or {}
+        # H2 series: extruder "snow" = (ams_id << 8) | slot, 0xFFFF = nothing loaded.
+        # Older models: ams.tray_now = ams_id * 4 + slot (or 254/255 for the external spool / none).
+        snow = ext.get("snow")
+        if isinstance(snow, int):
+            loaded = None if snow == 0xFFFF else (snow >> 8, snow & 0xFF)
+        else:
+            tn = int(_num(ams_raw.get("tray_now"), 255))
+            loaded = (tn, 0) if tn >= 128 else (tn // 4, tn % 4)
+        units = []
+        for u in ams_raw.get("ams") or []:
+            uid = int(u.get("id", 0))
+            trays = []
+            for t in u.get("tray") or []:
+                tid = int(t.get("id", 0))
+                empty = not t.get("tray_type")
+                col = (t.get("tray_color") or "00000000")[:6]
+                trays.append({
+                    "slot": tid + 1, "empty": empty, "type": t.get("tray_type") or "",
+                    "brand": t.get("tray_sub_brands") or "", "color": "#" + col,
+                    "remain": t.get("remain") if isinstance(t.get("remain"), int) else -1,
+                    "active": loaded == (uid, tid) and not empty,
+                    "tmin": t.get("nozzle_temp_min"), "tmax": t.get("nozzle_temp_max"),
+                })
+            units.append({
+                "id": uid, "name": "AMS HT" if uid >= 128 else f"AMS {uid + 1}",
+                "humidity": _num(u.get("humidity_raw")), "humidity_idx": _num(u.get("humidity")),
+                "temp": _num(u.get("temp")), "dry_min": int(_num(u.get("dry_time"), 0) or 0), "trays": trays,
+            })
+        ext_spool = None
+        for v in p.get("vir_slot") or []:
+            if v.get("tray_type"):
+                ext_spool = {"type": v["tray_type"], "brand": v.get("tray_sub_brands") or "",
+                             "color": "#" + (v.get("tray_color") or "00000000")[:6],
+                             "active": loaded is not None and loaded[0] >= 254}
+
+        lights = {l.get("node"): l.get("mode") for l in p.get("lights_report") or []}
+        xc = p.get("xcam") or {}
+        rem = _num(p.get("mc_remaining_time"))
+        spd = int(_num(p.get("spd_lvl"), 2) or 2)
+        hms = [_hms_code(h) for h in p.get("hms") or []]
+        perr = int(_num(p.get("print_error"), 0) or 0)
+        wifi = p.get("wifi_signal") or ""
+        job = self.job
+        meta = job.get("meta") or {}
+
+        return {
+            "id": self.id, "name": self.conf["name"], "online": online, "configured": self.configured(), "ts": time.time(),
+            "printers": [pr.summary() for pr in list(printers.values())],
+            "state": state, "state_txt": state_name(state), "stage": stage, "stage_id": stg,
+            "pct": int(_num(p.get("mc_percent"), 0) or 0), "remaining_min": rem,
+            "eta": (time.time() + rem * 60) if rem and state in ACTIVE else None,
+            "layer": int(_num(p.get("layer_num"), 0) or 0), "layers": int(_num(p.get("total_layer_num"), 0) or 0),
+            "task": p.get("subtask_name") or "", "plate": p.get("plate_idx"),
+            "print_type": p.get("print_type"),
+            "temps": {"nozzle": {"cur": noz_c, "tgt": noz_t}, "bed": {"cur": bed_c, "tgt": bed_t},
+                      "chamber": {"cur": ch_c, "tgt": ch_t}},
+            "fans": {"part": _fan(p.get("cooling_fan_speed")), "aux": _fan(p.get("big_fan1_speed")),
+                     "chamber": _fan(p.get("big_fan2_speed")), "heatbreak": _fan(p.get("heatbreak_fan_speed"))},
+            "speed": {"lvl": spd, "name": SPEEDS.get(spd, L(str(spd), str(spd))), "mag": _num(p.get("spd_mag"))},
+            "wifi": _num(wifi.replace("dBm", "")) if wifi else None,
+            "light": lights.get("chamber_light") == "on",
+            "ams": units, "ext": ext_spool,
+            "nozzle": {"type": p.get("nozzle_type"), "diameter": p.get("nozzle_diameter")},
+            "ai": {"spaghetti": xc.get("spaghetti_detector"), "first_layer": xc.get("first_layer_inspector"),
+                   "halt": xc.get("print_halt"), "sensitivity": xc.get("halt_print_sensitivity")},
+            "locked": self.conf["locked_cmds"],
+            "errors": {"print": f"{perr:08X}" if perr else None, "print_text": error_text(f"{perr:08X}") if perr else None,
+                       "hms": [{"code": c, "text": hms_text(c)} for c in hms]},
+            "job": {"started_at": job.get("started_at"), "thumb": bool(job.get("thumb")),
+                    "thumb_v": job.get("fetched_for") or "", "weight_g": meta.get("weight"),
+                    "prediction_s": meta.get("prediction"), "filaments": meta.get("filaments") or [],
+                    "cost": self.live_costs(meta) if state in ACTIVE or state == "FINISH" else None,
+                    "forecast": self.spool_forecast(meta) if state in ACTIVE else []},
+            "hist": list(self.hist)[-240:],
+            "events": list(self.events)[:40],
+        }
+
+    # ----- job history -----
+
+    def _job_key(self):
+        return f"{self.raw.get('subtask_id') or self.raw.get('subtask_name')}#{self.raw.get('plate_idx')}"
+
+    def _elapsed_guess(self):
+        """Seconds since the print started, when we did not see it start (server launched mid-print)."""
+        meta, rem = self.job.get("meta") or {}, _num(self.raw.get("mc_remaining_time"))
+        if meta.get("prediction") and rem is not None:
+            return max(0.0, meta["prediction"] - rem * 60)
+        return 0.0
+
+    def track_job(self):
+        """Opens/closes the history record for the current print. Called under the printer lock."""
+        p, state, job, serial = self.raw, self.raw.get("gcode_state"), self.job, self.conf.get("serial")
+        if not p.get("subtask_name") or not serial:
+            return
+        key = self._job_key()
+        if state in ACTIVE and job.get("db_key") != key:
+            jid = hist_db.open_job(serial, key)
+            if jid:  # server restarted during this print: continue the same record
+                job["started_at"] = hist_db.get(jid)["started"]
+            else:
+                seen_start = self.prev.get("seen_start") == key
+                started = job.get("started_at") if seen_start and job.get("started_at") else time.time() - self._elapsed_guess()
+                jid = hist_db.start(serial, key, p.get("subtask_name"), p.get("plate_idx"), started, not seen_start)
+                job["started_at"] = started
+            job.update(db_id=jid, db_key=key)
+            self.remember_meta()
+        elif state in ("FINISH", "FAILED", "IDLE") and job.get("db_id"):
+            self.finish_job(job["db_id"], {"FINISH": "FINISH", "FAILED": "FAILED"}.get(state, "CANCELLED"))
+            job.update(db_id=None, db_key=None)
+        elif state in ("FINISH", "FAILED") and not job.get("db_id"):
+            jid = hist_db.open_job(serial, key)  # finished while the server was down
+            if jid:
+                self.finish_job(jid, state)
+
+    def remember_meta(self):
+        """Copy slicer info and the plate render into the open history record once both are known."""
+        job = self.job
+        jid, meta = job.get("db_id"), job.get("meta")
+        if not jid or not meta or job.get("meta_saved") == jid:
+            return
+        fields = {"prediction_s": meta.get("prediction"), "weight_g": meta.get("weight"),
+                  "filaments": meta.get("filaments") or [], "layers": int(_num(self.raw.get("total_layer_num"), 0) or 0)}
+        if job.get("thumb"):
+            fields["thumb"] = job["thumb"]
+        rec = hist_db.get(jid)
+        if rec and rec["start_estimated"]:
+            fields["started"] = time.time() - self._elapsed_guess()
+            job["started_at"] = fields["started"]
+        hist_db.update(jid, **fields)
+        job["meta_saved"] = jid
+
+    def finish_job(self, jid, result):
+        rec = hist_db.get(jid)
+        if not rec:
+            return
+        ended = time.time()
+        pct = 100 if result == "FINISH" else int(_num(self.raw.get("mc_percent"), 0) or 0)
+        filaments = json.loads(rec["filaments"] or "[]")
+        fil, kwh, cost_e = job_costs(cfg["costs"], filaments, pct / 100, rec["started"], ended)
+        hist_db.update(jid, ended=ended, result=result, pct=pct, energy_kwh=kwh, cost_filament=fil,
+                       cost_energy=cost_e, currency=cfg["costs"].get("currency"))
+        self.log("job", L(f"Записано в историю: {rec['task']}", f"Saved to history: {rec['task']}"))
+
+        def grab():  # the final photo; ffmpeg can take a few seconds, so off the MQTT thread
+            try:
+                img = self.camera.snapshot()
+                if img:
+                    hist_db.update(jid, snapshot=img)
+            except Exception:  # noqa: BLE001 - a missing photo must not break anything
+                pass
+        threading.Thread(target=grab, daemon=True).start()
+
+    def live_costs(self, meta):
+        """Estimated cost of the whole current print, for the payload card."""
+        started = self.job.get("started_at")
+        if not meta or not started:
+            return None
+        fil, kwh, cost_e = job_costs(cfg["costs"], meta.get("filaments") or [], 1.0,
+                                     started, started + (meta.get("prediction") or 0))
+        if fil is None and cost_e is None:
+            return {"known": False, "currency": cfg["costs"].get("currency")}
+        return {"known": True, "filament": fil, "energy": cost_e, "kwh": kwh,
+                "total": round((fil or 0) + (cost_e or 0), 2), "currency": cfg["costs"].get("currency")}
+
+    def spool_forecast(self, meta):
+        """Will the loaded spools last? Per filament of the current print: grams left vs grams still needed."""
+        if not meta or not meta.get("filaments"):
+            return []
+        trays = {}
+        for u in self.raw.get("ams", {}).get("ams") or []:
+            for t in u.get("tray") or []:
+                trays[(int(u.get("id", 0)), int(t.get("id", 0)))] = t
+        mapping = self.raw.get("mapping") or []
+        done = (_num(self.raw.get("mc_percent"), 0) or 0) / 100
+        out = []
+        for f in meta["filaments"]:
+            idx = (f.get("id") or 0) - 1
+            v = mapping[idx] if 0 <= idx < len(mapping) else None
+            if v is None or v == 0xFFFF:
+                continue
+            slot = (v >> 8, v & 0xFF) if v >= 256 else (v // 4, v % 4)  # H2: (ams<<8)|slot; older: ams*4+slot
+            t = trays.get(slot)
+            if not t:
+                continue
+            need = round((f.get("g") or 0) * (1 - done), 1)
+            remain = t.get("remain") if isinstance(t.get("remain"), int) else -1
+            spool_g = _num(t.get("tray_weight"), 0) or 1000  # Bambu spools are 1 kg unless the RFID says otherwise
+            left = round(spool_g * remain / 100, 0) if remain >= 0 else None
+            status = "unknown" if left is None else "ok" if left >= need * 1.1 else "short"
+            out.append({"type": f.get("type"), "color": f.get("color"), "need_g": need, "left_g": left,
+                        "status": status, "ams": "AMS HT" if slot[0] >= 128 else f"AMS {slot[0] + 1}", "slot": slot[1] + 1})
+        return out
+
+    def track_transitions(self):
+        """Called under the printer lock after each MQTT message: emits timeline events."""
+        p, prev, job = self.raw, self.prev, self.job
+        state = p.get("gcode_state")
+        key = (p.get("subtask_id") or p.get("subtask_name"), p.get("plate_idx"))
+        if state and state != prev["state"]:
+            if state in ("PREPARE", "RUNNING") and prev["state"] is not None and prev["state"] not in ACTIVE:
+                prev["seen_start"] = self._job_key()
+            if prev["state"] is not None:
+                a, b = state_name(prev["state"]), state_name(state)
+                self.log("state", L(f"{a['ru']} → {b['ru']}", f"{a['en']} → {b['en']}"))
+            if state in ("PREPARE", "RUNNING") and prev["state"] not in (*ACTIVE, None):
+                job["started_at"] = time.time()
+            prev["state"] = state
+        if key != job["key"]:
+            job.update(key=key, thumb=None, meta=None)
+            if p.get("subtask_name"):
+                self.log("job", L(f"Задание: {p.get('subtask_name')}", f"Job: {p.get('subtask_name')}"))
+        stg = p.get("stg_cur")
+        if stg != prev["stage"]:
+            if prev["stage"] is not None and isinstance(stg, int) and stg not in (0, 255, -1):
+                self.log("stage", stage_name(stg))
+            prev["stage"] = stg
+        err = p.get("print_error") or 0
+        if err != prev["err"]:
+            if err:
+                code = f"{int(err):08X}"
+                txt = error_text(code) or L("", "")
+                self.log("error", L(f"Ошибка печати {code}. {txt['ru']}".strip(" ."), f"Print error {code}. {txt['en']}".strip(" .")))
+            prev["err"] = err
+        hms = tuple(_hms_code(h) for h in p.get("hms") or [])
+        if hms != prev["hms"]:
+            for code in set(hms) - set(prev["hms"]):
+                txt = hms_text(code) or L("", "")
+                self.log("error", L(f"HMS {code}. {txt['ru']}".strip(" ."), f"HMS {code}. {txt['en']}".strip(" .")))
+            prev["hms"] = hms
+        self.track_job()
+
+    # ----- MQTT -----
+
+    def send(self, payload):
+        self.seq += 1
+        for v in payload.values():
+            v["sequence_id"] = str(self.seq)
+        self.client.publish(f"device/{self.conf['serial']}/request", json.dumps(payload))
+
+    def on_connect(self, c, u, flags, rc, props=None):
+        self.mqtt_ok = not rc.is_failure
+        if self.mqtt_ok:
+            c.subscribe(f"device/{self.conf['serial']}/report")
+            self.send({"pushing": {"command": "pushall"}})
+            self.log("link", L("Связь с принтером установлена", "Connected to printer"))
+        else:
+            self.log("error", L(f"MQTT отказ: {rc}", f"MQTT refused: {rc}"))
+
+    def on_disconnect(self, c, u, flags, rc, props=None):
+        self.mqtt_ok = False
+        if not self.stopped:
+            self.log("link", L("Связь с принтером потеряна", "Printer connection lost"))
+
+    def on_message(self, c, u, m):
+        try:
+            d = json.loads(m.payload)
+        except ValueError:
+            return
+        self.last_msg = time.time()
+        with self.lock:
+            for section in ("print", "system"):
+                body = d.get(section)
+                if not isinstance(body, dict):
+                    continue
+                if body.get("result") and body.get("command") not in ("push_status", None):
+                    ok = str(body.get("result")).lower() == "success"
+                    why = body.get("reason") or body.get("err_code") or ""
+                    cmd = body["command"]
+                    # Firmware with authorization control rejects unsigned gcode/drying commands unless
+                    # Developer Mode is on. Remember it so the console stops offering them (each try
+                    # also raises an HMS notice on the printer screen).
+                    if not ok and "verify" in str(why).lower() and cmd not in self.conf["locked_cmds"]:
+                        with cfg_lock:
+                            self.conf["locked_cmds"] = [*self.conf["locked_cmds"], cmd]
+                            save_cfg(cfg)
+                    self.log("ack" if ok else "error",
+                             L(f"Команда {cmd}: {'выполнена' if ok else 'отклонена'} {why}".strip(),
+                               f"Command {cmd}: {'done' if ok else 'rejected'} {why}".strip()))
+                if section == "print":
+                    merge(self.raw, body)
+            self.track_transitions()
+        self.dirty.set()
+
+    def reset_state(self):
+        with self.lock:
+            self.raw.clear()
+            self.hist.clear()
+            self.job.update(key=None, started_at=None, thumb=None, meta=None, fetched_for=None, fetch_err_at=0,
+                            db_id=None, db_key=None, meta_saved=None)
+            self.prev.update(state=None, stage=None, err=None, hms=(), seen_start=None)
+            self.last_msg = 0.0
+        self.dirty.set()
+
+    def reconnect(self):
+        """The connection settings changed: start over with the new printer."""
+        self.reset_state()
+        self.camera.restart()
+        self.h264.restart()
+        self.log("link", L(f"Настройки сохранены: {self.conf['name']} ({self.conf['host']})",
+                           f"Settings saved: {self.conf['name']} ({self.conf['host']})"))
+        self.cfg_changed.set()
+        self.client.disconnect()  # makes loop_forever return; mqtt_loop reconnects with the new settings
+
+    def mqtt_loop(self):
+        c = self.client
+        c.tls_set(cert_reqs=ssl.CERT_NONE)
+        c.tls_insecure_set(True)
+        c.on_connect, c.on_disconnect, c.on_message = self.on_connect, self.on_disconnect, self.on_message
+        c.reconnect_delay_set(2, 30)
+        while not self.stopped:
+            if not self.configured():
+                self.cfg_changed.wait()
+                continue
+            self.cfg_changed.clear()
+            host = self.conf["host"]
+            c.username_pw_set("bblp", self.conf["access_code"])
+            try:
+                c.connect(host, 8883, 30)
+                c.loop_forever(retry_first_connection=True)
+            except (OSError, ssl.SSLError) as e:
+                self.log("error", L(f"Нет связи с {host}: {e}", f"Cannot reach {host}: {e}"))
+                self.cfg_changed.wait(10)
+
+    def sampler(self):
+        """History samples every 5 s, a full refresh every 10 min, and the job fetcher trigger."""
+        n = 0
+        while not self.stopped:
+            time.sleep(5)
+            n += 1
+            with self.lock:
+                v = self.build_view()
+            t = v["temps"]
+            self.hist.append([round(time.time()), t["nozzle"]["cur"], t["bed"]["cur"], t["chamber"]["cur"], v["pct"]])
+            self.dirty.set()
+            if n % 120 == 0 and self.mqtt_ok:
+                self.send({"pushing": {"command": "pushall"}})
+            if v["task"] and self.job["fetched_for"] != self._fetch_key() and time.time() - self.job["fetch_err_at"] > 120:
+                threading.Thread(target=self.fetch_job, daemon=True).start()
+
+    def broadcaster(self):
+        last_push = 0.0
+        while not self.stopped:
+            self.dirty.wait(timeout=10)
+            self.dirty.clear()
+            time.sleep(max(0, 0.5 - (time.time() - last_push)))  # at most 2 pushes/s
+            with self.lock:
+                data = json.dumps(self.build_view(), ensure_ascii=False)
+            last_push = time.time()
+            for q in list(self.sse_clients):
+                try:
+                    q.put_nowait(data)
+                except queue.Full:
+                    pass
+
+    # ----- FTPS -----
+
+    def _fetch_key(self):
+        return f"{self.raw.get('subtask_name')}#{self.raw.get('plate_idx')}"
+
+    def fetch_job(self):
+        job = self.job
+        with self.lock:
+            name, plate, key = self.raw.get("subtask_name") or "", int(_num(self.raw.get("plate_idx"), 1) or 1), self._fetch_key()
+        if job.get("_busy"):
+            return
+        job["_busy"] = True
+        try:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
+            f = ImplicitFTPS(context=ctx)
+            f.connect(self.conf["host"], 990, timeout=20)
+            f.login("bblp", self.conf["access_code"])
+            f.prot_p()
+            files = []
+            for d in ("/cache", "/"):
+                try:
+                    files += [x for x in f.nlst(d) if x.endswith(".3mf")]
+                except ftplib.error_perm:
+                    pass
+            stem = name[:-4] if name.endswith(".3mf") else name
+            match = [x for x in files if os.path.basename(x).startswith(stem)] if stem else []
+            if not match:
+                raise FileNotFoundError(f"no .3mf for {name}")
+            buf = io.BytesIO()
+            f.retrbinary(f"RETR {match[0]}", buf.write)
+            f.quit()
+            z = zipfile.ZipFile(buf)
+            names = set(z.namelist())
+            thumb = None
+            for cand in (f"Metadata/plate_{plate}.png", "Metadata/plate_1.png"):
+                if cand in names:
+                    thumb = z.read(cand)
+                    break
+            meta = {}
+            if "Metadata/slice_info.config" in names:
+                root = ET.fromstring(z.read("Metadata/slice_info.config"))
+                for pl in root.iter("plate"):
+                    md = {m.get("key"): m.get("value") for m in pl.findall("metadata")}
+                    if str(md.get("index", "1")) != str(plate):
+                        continue
+                    meta = {"prediction": _num(md.get("prediction")), "weight": _num(md.get("weight")),
+                            "filaments": [{"id": int(_num(fl.get("id"), 0) or 0), "type": fl.get("type"),
+                                           "color": fl.get("color"), "g": _num(fl.get("used_g")), "m": _num(fl.get("used_m"))}
+                                          for fl in pl.findall("filament")]}
+            with self.lock:
+                job.update(thumb=thumb, meta=meta, fetched_for=key)
+                self.remember_meta()
+            kb = len(buf.getvalue()) // 1024
+            self.log("job", L(f"Загружено превью модели ({kb} КБ .3mf)", f"Model preview loaded ({kb} KB .3mf)"))
+        except Exception as e:  # noqa: BLE001 - printer FTP is flaky, never let it kill the thread
+            job["fetch_err_at"] = time.time()
+            self.log("error", L(f"Превью не загружено: {e}", f"Preview not loaded: {e}"))
+        finally:
+            job["_busy"] = False
+            self.dirty.set()
+
+
+printers = {}  # id -> Printer, in settings order
+
+
+def sync_printers():
+    """Start a Printer for every configured entry, stop the removed ones."""
+    wanted = {p["id"]: p for p in cfg["printers"]}
+    for pid in list(printers):
+        if pid not in wanted:
+            printers.pop(pid).stop()
+    for pid, conf in wanted.items():
+        if pid not in printers:
+            printers[pid] = Printer(conf)
+    # keep the settings order for the switcher
+    order = [p["id"] for p in cfg["printers"]]
+    for pid in order:
+        printers[pid] = printers.pop(pid)
+
+
+def any_configured():
+    return any(pr.configured() for pr in printers.values())
+
 
 # ---------- setup: discovery and connection test ----------
 
@@ -951,7 +1033,8 @@ def discover():
     with concurrent.futures.ThreadPoolExecutor(64) as ex:
         candidates = [h for h in ex.map(port_open, hosts) if h]
         serials = list(ex.map(printer_identity, candidates))
-    return [{"host": h, "serial": s} for h, s in zip(candidates, serials) if s]
+    known = {p.get("serial"): p["id"] for p in cfg["printers"]}
+    return [{"host": h, "serial": s, "added": known.get(s)} for h, s in zip(candidates, serials) if s]
 
 
 def test_printer(host, code, serial=None):
@@ -996,26 +1079,8 @@ def test_printer(host, code, serial=None):
         c.disconnect()
     return result
 
-# ---------- HTTP ----------
 
-sse_clients = []
-
-
-def broadcaster():
-    last_push = 0.0
-    while True:
-        dirty.wait(timeout=10)
-        dirty.clear()
-        time.sleep(max(0, 0.5 - (time.time() - last_push)))  # at most 2 pushes/s
-        with lock:
-            data = json.dumps(build_view(), ensure_ascii=False)
-        last_push = time.time()
-        for q in list(sse_clients):
-            try:
-                q.put_nowait(data)
-            except queue.Full:
-                pass
-
+# ---------- printer commands ----------
 
 COMMANDS = {
     "pause": lambda a: {"print": {"command": "pause", "param": ""}},
@@ -1023,6 +1088,40 @@ COMMANDS = {
     "stop": lambda a: {"print": {"command": "stop", "param": ""}},
     "speed": lambda a: {"print": {"command": "print_speed", "param": str(a["level"])}},
 }
+LIMITS = {"nozzle": (0, 300), "bed": (0, 110)}
+FAN_PORTS = {"part": "P1", "aux": "P2", "chamber": "P3"}
+
+
+def gcode(line):
+    return {"print": {"command": "gcode_line", "param": line + "\n"}}
+
+
+def extra_command(act, a):
+    """Temperature, fan and AMS-drying commands with server-side limits; (payload, error)."""
+    if act == "temp":
+        which, v = a.get("target"), _num(a.get("value"))
+        if which not in LIMITS or v is None or not LIMITS[which][0] <= v <= LIMITS[which][1]:
+            return None, "bad temperature"
+        return gcode(f"{'M104' if which == 'nozzle' else 'M140'} S{int(v)}"), None
+    if act == "fan":
+        port, pct = FAN_PORTS.get(a.get("fan")), _num(a.get("pct"))
+        if not port or pct is None or not 0 <= pct <= 100:
+            return None, "bad fan"
+        return gcode(f"M106 {port} S{math.ceil(255 * round(pct / 10) * 10 / 100)}"), None
+    if act in ("dry_start", "dry_stop"):
+        ams_id = int(_num(a.get("ams_id"), -1) if a.get("ams_id") is not None else -1)
+        if ams_id < 0 or ams_id > 255:
+            return None, "bad ams"
+        temp, hours = int(_num(a.get("temp"), 0) or 0), int(_num(a.get("hours"), 0) or 0)
+        if act == "dry_start" and not (35 <= temp <= 85 and 1 <= hours <= 24):
+            return None, "bad drying settings"
+        start = act == "dry_start"
+        return {"print": {"command": "ams_filament_drying", "ams_id": ams_id,
+                          "temp": temp if start else 0, "cooling_temp": 45 if start else 0,
+                          "duration": hours if start else 0, "humidity": 0, "mode": 1 if start else 0,
+                          "rotate_tray": False, "filament": str(a.get("filament") or "")[:16] if start else "",
+                          "close_power_conflict": False}}, None
+    return None, "unknown action"
 
 
 def light_cmds(on):
@@ -1110,6 +1209,8 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    # ----- plumbing -----
+
     def _send(self, code, body, ctype, headers=(), cache="no-store"):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -1119,6 +1220,31 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
+
+    def _json(self, code, obj, headers=()):
+        self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8", headers)
+
+    def _page(self, name):
+        with open(os.path.join(BASE, "static", name), "rb") as f:
+            self._send(200, f.read(), "text/html; charset=utf-8")
+
+    def _static(self, name):
+        path = os.path.normpath(os.path.join(BASE, "static", name))
+        ext = os.path.splitext(path)[1]
+        if not path.startswith(os.path.join(BASE, "static") + os.sep) or ext not in STATIC_TYPES or not os.path.isfile(path):
+            return self._send(404, b"not found", "text/plain")
+        with open(path, "rb") as f:
+            self._send(200, f.read(), STATIC_TYPES[ext], cache="max-age=86400")
+
+    def _query(self):
+        return {k: v[0] for k, v in parse_qs(self.path.partition("?")[2]).items()}
+
+    def _printer(self, pid=None):
+        """The printer a request is about: ?p=<id> (or "p" in a POST body); the first one by default."""
+        pid = pid or self._query().get("p")
+        if pid and pid in printers:
+            return printers[pid]
+        return next(iter(printers.values()), None) if not pid else None
 
     def _authed(self):
         if not auth_required():
@@ -1135,25 +1261,12 @@ class Handler(BaseHTTPRequestHandler):
     def _session_cookie(self, token, max_age):
         return ("Set-Cookie", f"{SESSION_COOKIE}={token}; Max-Age={max_age}; Path=/; HttpOnly; SameSite=Strict")
 
-    def _static(self, name):
-        path = os.path.normpath(os.path.join(BASE, "static", name))
-        ext = os.path.splitext(path)[1]
-        if not path.startswith(os.path.join(BASE, "static") + os.sep) or ext not in STATIC_TYPES or not os.path.isfile(path):
-            return self._send(404, b"not found", "text/plain")
-        with open(path, "rb") as f:
-            self._send(200, f.read(), STATIC_TYPES[ext], cache="max-age=86400")
-
-    def _json(self, code, obj):
-        self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
-
-    def _page(self, name):
-        with open(os.path.join(BASE, "static", name), "rb") as f:
-            self._send(200, f.read(), "text/html; charset=utf-8")
+    # ----- GET -----
 
     def do_GET(self):
         path = self.path.split("?")[0]
         if path in ("/", "/index.html"):
-            if not configured():
+            if not any_configured():
                 self.send_response(302)
                 self.send_header("Location", "/setup")
                 self.send_header("Content-Length", "0")
@@ -1170,39 +1283,46 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"required": auth_required(), "authed": self._authed()})
         if path in ("/api/config", "/api/discover") and not self._authed():
             return self._deny()
-        if path == "/api/history":
-            return self._json(200, {"jobs": hist_db.recent(100, cfg["serial"] or None), "currency": cfg["costs"].get("currency")})
-        if path == "/api/stats":
-            q = dict(x.split("=", 1) for x in (self.path.split("?", 1)[1:] or [""])[0].split("&") if "=" in x)
+        if path == "/api/config":
+            # Never hand an access code back out, only whether one is stored.
+            return self._json(200, {
+                "port": cfg["port"], "running_port": PORT, "has_password": auth_required(), "costs": cfg["costs"],
+                "printers": [{"id": p["id"], "name": p["name"], "host": p.get("host"), "serial": p.get("serial"),
+                              "has_code": bool(p.get("access_code")), "configured": printers[p["id"]].configured()}
+                             for p in cfg["printers"] if p["id"] in printers]})
+        if path == "/api/discover":
+            return self._json(200, {"printers": discover(), "subnets": [str(n) for n in local_subnets()]})
+        if path in ("/api/history", "/api/stats"):
+            q = self._query()
+            serial = None if q.get("p") == "all" else (self._printer().conf.get("serial") if self._printer() else None)
+            if path == "/api/history":
+                return self._json(200, {"jobs": hist_db.recent(100, serial), "currency": cfg["costs"].get("currency")})
             days = int(q["days"]) if q.get("days", "").isdigit() else None
-            return self._json(200, {**hist_db.stats(days, cfg["serial"] or None), "currency": cfg["costs"].get("currency")})
+            return self._json(200, {**hist_db.stats(days, serial), "currency": cfg["costs"].get("currency")})
         m = re.match(r"^/api/history/(\d+)/(snapshot\.jpg|thumb\.png)$", path)
         if m:
             data = hist_db.blob(int(m.group(1)), "snapshot" if m.group(2).startswith("snap") else "thumb")
             if not data:
                 return self._send(404, b"", "text/plain")
             return self._send(200, data, "image/jpeg" if m.group(2).endswith("jpg") else "image/png", cache="max-age=86400")
-        if path == "/api/config":
-            # Never hand the access code back out, only whether one is stored.
-            return self._json(200, {"host": cfg["host"], "serial": cfg["serial"], "name": cfg["name"],
-                                    "port": cfg["port"], "running_port": PORT,
-                                    "has_code": bool(cfg["access_code"]), "configured": configured(),
-                                    "has_password": auth_required(), "costs": cfg["costs"]})
-        if path == "/api/discover":
-            return self._json(200, {"printers": discover(), "subnets": [str(n) for n in local_subnets()]})
+        pr = self._printer()
+        if pr is None:
+            return self._send(404, b"no such printer", "text/plain")
         if path == "/events":
-            return self._sse()
+            return self._sse(pr)
         if path == "/video.mp4":
-            return self._fmp4()
+            return self._fmp4(pr)
         if path == "/stream.mjpg":
-            return self._mjpeg()
+            return self._mjpeg(pr)
         if path == "/snapshot.jpg":
-            img = camera.snapshot()
+            img = pr.camera.snapshot()
             return self._send(200, img, "image/jpeg") if img else self._send(503, b"no frame", "text/plain")
         if path == "/thumb.png":
-            t = job.get("thumb")
+            t = pr.job.get("thumb")
             return self._send(200, t, "image/png") if t else self._send(404, b"", "text/plain")
         self._send(404, b"not found", "text/plain")
+
+    # ----- POST -----
 
     def do_POST(self):
         n = int(self.headers.get("Content-Length") or 0)
@@ -1216,11 +1336,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._login(a)
         if self.path == "/api/logout":
             return self._send(200, b'{"ok":true}', "application/json", headers=[self._session_cookie("", 0)])
-        if self.path in ("/api/cmd", "/api/test", "/api/config", "/api/history/delete") and not self._authed():
+        if self.path in ("/api/cmd", "/api/test", "/api/config", "/api/printer/delete", "/api/history/delete") \
+                and not self._authed():
             return self._deny()
         if self.path == "/api/history/delete":
             hist_db.delete(int(_num(a.get("id"), 0) or 0))
             return self._json(200, {"ok": True})
+        if self.path == "/api/printer/delete":
+            return self._delete_printer(a)
         if self.path == "/api/cmd":
             return self._cmd(a)
         if self.path == "/api/test":
@@ -1229,8 +1352,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._save(a)
         self._send(404, b"", "text/plain")
 
-    def _creds(self, a):
-        """Validated (host, serial, code) from a form; the stored code is reused only for the same printer."""
+    def _creds(self, a, conf):
+        """Validated (host, serial, code); a stored code is reused only for the same printer at the same address."""
         host = str(a.get("host", "")).strip()
         serial = str(a.get("serial", "")).strip().upper()
         code = str(a.get("access_code", "")).strip()
@@ -1239,55 +1362,100 @@ class Handler(BaseHTTPRequestHandler):
         if serial and not SERIAL_RE.match(serial):
             return None, "serial"
         if not code:
-            if not (cfg["access_code"] and host == cfg["host"] and serial in ("", cfg["serial"])):
+            if not (conf and conf.get("access_code") and host == conf.get("host") and serial in ("", conf.get("serial"))):
                 return None, "code_required"
-            code = cfg["access_code"]
+            code = conf["access_code"]
         elif not re.match(r"^[A-Za-z0-9]{4,32}$", code):
             return None, "code"
         return (host, serial, code), None
 
+    def _conf_for(self, a):
+        pid = a.get("p")
+        return next((p for p in cfg["printers"] if p["id"] == pid), None)
+
     def _test(self, a):
-        creds, err = self._creds(a)
+        creds, err = self._creds(a, self._conf_for(a))
         if err:
             return self._json(400, {"ok": False, "error": err})
         host, serial, code = creds
         self._json(200, test_printer(host, code, serial or None))
 
     def _save(self, a):
-        creds, err = self._creds(a)
-        if err:
-            return self._json(400, {"ok": False, "error": err})
-        host, serial, code = creds
-        if not serial:
-            serial = printer_identity(host) or ""
-            if not serial:
-                return self._json(400, {"ok": False, "error": "serial"})
+        """Global settings (port, costs, password) plus, when "host" is present, one printer ("p": id or "new")."""
+        new_global = {}
         try:
             port = int(a.get("port") or cfg["port"])
         except (TypeError, ValueError):
             port = 0
         if not 1024 <= port <= 65535:
             return self._json(400, {"ok": False, "error": "port"})
-        name = (str(a.get("name") or "").strip() or "Bambu")[:40]
-        new = {"host": host, "serial": serial, "access_code": code, "name": name, "port": port}
+        new_global["port"] = port
         if "costs" in a:
             costs, err = parse_costs(a["costs"])
             if err:
                 return self._json(400, {"ok": False, "error": err})
-            new["costs"] = costs
-        headers = []
+            new_global["costs"] = costs
         pw = str(a.get("new_password") or "")
         if pw:
             if not 4 <= len(pw) <= 128:
                 return self._json(400, {"ok": False, "error": "password"})
-            new.update(password_hash=hash_password(pw), session_secret=secrets.token_hex(32))
+            new_global.update(password_hash=hash_password(pw), session_secret=secrets.token_hex(32))
         elif a.get("remove_password"):
-            new.update(password_hash="", session_secret="")
-        apply_cfg(new)
+            new_global.update(password_hash="", session_secret="")
+
+        result = {"ok": True, "restart_needed": port != PORT}
+        conf, reconnect = None, False
+        if a.get("host"):
+            conf = self._conf_for(a)
+            creds, err = self._creds(a, conf)
+            if err:
+                return self._json(400, {"ok": False, "error": err})
+            host, serial, code = creds
+            if not serial:
+                serial = printer_identity(host) or ""
+                if not serial:
+                    return self._json(400, {"ok": False, "error": "serial"})
+            if any(p.get("serial") == serial and p is not conf for p in cfg["printers"]):
+                return self._json(400, {"ok": False, "error": "duplicate"})
+            name = (str(a.get("name") or "").strip() or "Bambu")[:40]
+            fields = {"host": host, "serial": serial, "access_code": code, "name": name}
+            with cfg_lock:
+                if conf is None:  # a new printer
+                    used = {p["id"] for p in cfg["printers"]}
+                    pid = next(f"p{i}" for i in range(1, 1000) if f"p{i}" not in used)
+                    conf = {"id": pid, "locked_cmds": [], **fields}
+                    cfg["printers"].append(conf)
+                else:
+                    reconnect = any(fields[k] != conf.get(k) for k in ("host", "serial", "access_code"))
+                    if reconnect:
+                        conf["locked_cmds"] = []  # a different printer may well accept them
+                    conf.update(fields)
+            result.update(serial=serial, p=conf["id"])
+        with cfg_lock:
+            cfg.update(new_global)
+            save_cfg(cfg)
+        sync_printers()
+        if conf is not None:
+            pr = printers[conf["id"]]
+            if reconnect:
+                pr.reconnect()
+            elif not pr.mqtt_ok:
+                pr.cfg_changed.set()  # a brand-new printer: let its MQTT loop start
+            pr.dirty.set()
+        headers = []
         if pw:  # keep the person who just set the password logged in
             headers.append(self._session_cookie(make_token(), SESSION_DAYS * 86400))
-        self._send(200, json.dumps({"ok": True, "serial": serial, "restart_needed": port != PORT}).encode(),
-                   "application/json", headers=headers)
+        self._json(200, result, headers)
+
+    def _delete_printer(self, a):
+        conf = self._conf_for(a)
+        if not conf:
+            return self._json(404, {"ok": False, "error": "no such printer"})
+        with cfg_lock:
+            cfg["printers"].remove(conf)
+            save_cfg(cfg)
+        sync_printers()
+        return self._json(200, {"ok": True})
 
     def _login(self, a):
         ip = self.client_address[0]
@@ -1303,38 +1471,52 @@ class Handler(BaseHTTPRequestHandler):
             time.sleep(0.7)
             return self._json(403, {"ok": False, "error": "wrong"})
         login_failures.pop(ip, None)
-        self._send(200, b'{"ok":true}', "application/json",
-                   headers=[self._session_cookie(make_token(), SESSION_DAYS * 86400)])
+        self._json(200, {"ok": True}, [self._session_cookie(make_token(), SESSION_DAYS * 86400)])
 
     def _cmd(self, a):
-        if not configured():
+        pr = self._printer(a.get("p"))
+        if pr is None or not pr.configured():
             return self._send(409, b"not configured", "text/plain")
         act = a.get("action")
         if act == "light":
             for c in light_cmds(bool(a.get("on"))):
-                send(c)
+                pr.send(c)
         elif act == "speed" and a.get("level") not in (1, 2, 3, 4):
             return self._send(400, b"bad speed level", "text/plain")
+        elif act == "unlock":
+            with cfg_lock:
+                pr.conf["locked_cmds"] = []
+                save_cfg(cfg)
+            pr.dirty.set()
+            return self._json(200, {"ok": True})
         elif act in COMMANDS:
-            send(COMMANDS[act](a))
+            pr.send(COMMANDS[act](a))
         else:
-            return self._send(400, b"unknown action", "text/plain")
-        log_event("cmd", L(f"Отправлено: {act}", f"Sent: {act}"))
+            payload, err = extra_command(act, a)
+            mqtt_cmd = (payload or {}).get("print", {}).get("command")
+            if mqtt_cmd in pr.conf["locked_cmds"]:
+                return self._json(409, {"ok": False, "error": "locked"})
+            if err:
+                return self._send(400, err.encode(), "text/plain")
+            pr.send(payload)
+        pr.log("cmd", L(f"Отправлено: {act}", f"Sent: {act}"))
         self._send(200, b'{"ok":true}', "application/json")
 
-    def _sse(self):
+    # ----- streams -----
+
+    def _sse(self, pr):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         q = queue.Queue(maxsize=4)
-        with lock:
-            first = json.dumps(build_view(), ensure_ascii=False)
-        sse_clients.append(q)
+        with pr.lock:
+            first = json.dumps(pr.build_view(), ensure_ascii=False)
+        pr.sse_clients.append(q)
         try:
             self.wfile.write(f"data: {first}\n\n".encode())
             self.wfile.flush()
-            while True:
+            while not pr.stopped:
                 try:
                     msg = q.get(timeout=15)
                     self.wfile.write(f"data: {msg}\n\n".encode())
@@ -1344,9 +1526,10 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, socket.timeout):
             pass
         finally:
-            sse_clients.remove(q)
+            pr.sse_clients.remove(q)
 
-    def _fmp4(self):
+    def _fmp4(self, pr):
+        h264 = pr.h264
         h264.acquire()
         try:
             with h264.cond:
@@ -1360,7 +1543,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(init + frag)
-            while True:
+            while not pr.stopped:
                 with h264.cond:
                     h264.cond.wait_for(lambda: h264.seq != seq or h264.init is not init, timeout=10)
                     if h264.init is not init:
@@ -1376,7 +1559,8 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             h264.release()
 
-    def _mjpeg(self):
+    def _mjpeg(self, pr):
+        camera = pr.camera
         self.send_response(200)
         self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
         self.send_header("Cache-Control", "no-store")
@@ -1384,7 +1568,7 @@ class Handler(BaseHTTPRequestHandler):
         camera.acquire()
         last = None
         try:
-            while True:
+            while not pr.stopped:
                 with camera.cond:
                     camera.cond.wait(timeout=10)
                     frame = camera.frame
@@ -1402,20 +1586,22 @@ class Handler(BaseHTTPRequestHandler):
 
 def shutdown(*_):
     # ffmpeg stuck on a dead stream ignores SIGTERM and would outlive us holding a printer session.
-    for cam in (camera, h264):
-        cam._stop(kill=True)
+    for pr in list(printers.values()):
+        pr.camera._stop(kill=True)
+        pr.h264._stop(kill=True)
     os._exit(0)
 
 
 def main():
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
-    for target in (mqtt_loop, sampler, broadcaster):
-        threading.Thread(target=target, daemon=True).start()
+    if any(k in json.load(open(CFG_PATH)) for k in PRINTER_KEYS) if os.path.exists(CFG_PATH) else False:
+        save_cfg(cfg)  # migrate a single-printer config to the "printers" list on disk
+    sync_printers()
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     srv.daemon_threads = True
-    where = cfg["host"] if configured() else "not configured, open /setup"
-    print(f"Mission Control: http://localhost:{PORT}  (printer: {where})", flush=True)
+    names = ", ".join(f"{pr.conf['name']} ({pr.conf['host']})" for pr in printers.values()) or "not configured, open /setup"
+    print(f"Mission Control: http://localhost:{PORT}  (printers: {names})", flush=True)
     srv.serve_forever()
 
 

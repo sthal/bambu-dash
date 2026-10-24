@@ -76,6 +76,15 @@ input::placeholder { color: var(--faint); }
 .hint { color: var(--faint); font-size: 12px; line-height: 1.45; }
 label.check { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font: 500 13px var(--sans); color: var(--dim); cursor: pointer; }
 label.check input { width: auto; }
+.plist { display: grid; gap: 8px; margin-bottom: 14px; }
+.prow { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); background: rgba(255,255,255,.03); }
+.prow.on { border-color: var(--cyan); box-shadow: 0 0 16px rgba(72,224,255,.2); }
+.prow b { font: 600 14px var(--sans); }
+.prow span { color: var(--dim); font: 500 12px var(--mono); }
+.prow .sp { flex: 1; }
+.prow button { border-radius: 9px; border: 1px solid var(--line-hi); background: rgba(255,255,255,.05); color: var(--text); font: 600 12px var(--sans); padding: 6px 10px; cursor: pointer; }
+.prow button.del { color: #ff8da0; border-color: rgba(255,77,106,.4); }
+.tag { font: 600 10px var(--mono); padding: 2px 7px; border-radius: 6px; background: rgba(61,255,170,.12); color: var(--green); }
 .gate { max-width: 380px; margin: 40px auto; display: grid; gap: 12px; }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
 .steps { list-style: none; margin: 16px 0 0; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: rgba(255,255,255,.03); display: grid; gap: 8px; }
@@ -118,6 +127,12 @@ label.check input { width: auto; }
     </form>
   </section>
 
+  <section class="card main" id="mine" hidden>
+    <h2><span class="n">◎</span><span data-i18n="sMine">Мои принтеры</span></h2>
+    <div class="plist" id="plist"></div>
+    <button class="btn" id="add"><span data-i18n="addPrinter">+ Добавить принтер</span></button>
+  </section>
+
   <section class="card main">
     <h2><span class="n">1</span><span data-i18n="s1">Найти принтер</span></h2>
     <p class="lead" data-i18n="s1lead">Поищу принтеры Bambu Lab в вашей сети. Компьютер и принтер должны быть в одной сети.</p>
@@ -127,7 +142,7 @@ label.check input { width: auto; }
   </section>
 
   <section class="card main">
-    <h2><span class="n">2</span><span data-i18n="s2">Данные подключения</span></h2>
+    <h2><span class="n">2</span><span data-i18n="s2">Данные подключения</span><span class="tag" id="editing" style="margin-left:6px"></span></h2>
     <p class="lead" data-i18n="s2lead">Access Code хранится только на этом компьютере, в config.json. Наружу сервер его не отдаёт.</p>
     <form id="form" autocomplete="off">
       <div class="fields">
@@ -215,6 +230,8 @@ const I18N = {
     e_code_required: "Введите Access Code: для другого принтера сохранённый не используется", e_port: "Порт должен быть от 1024 до 65535", e_net: "Сервер дашборда недоступен",
     f_reach: "Принтер не отвечает по этому адресу. Проверьте IP и что он в той же сети.", f_auth: "Принтер найден, но Access Code не подошёл.", f_status: "Подключились, но статус не пришёл. Проверьте серийный номер.",
     state: "состояние",
+    sMine: "Мои принтеры", addPrinter: "+ Добавить принтер", edit: "Изменить", del: "Удалить", newPrinter: "новый принтер",
+    delConfirm: "Удалить принтер «{name}» из дашборда? История печатей останется.", added: "уже добавлен", e_duplicate: "Этот принтер уже добавлен",
     sCost: "Стоимость печати", sCostLead: "Нужно для расчёта стоимости каждой печати и статистики. Пустое поле — не учитывать.",
     cCur: "Валюта", cDef: "Пластик по умолчанию, за кг", cTypes: "Цена за кг по материалам", cPower: "Средняя мощность при печати, Вт",
     cPowerHint: "Примерно 180 Вт для H2S. С розеткой-счётчиком можно уточнить.", cDay: "Дневной тариф, за кВт·ч", cNight: "Ночной тариф, за кВт·ч",
@@ -245,6 +262,8 @@ const I18N = {
     e_code_required: "Enter the Access Code: the stored one is never reused for a different printer", e_port: "Port must be between 1024 and 65535", e_net: "Dashboard server unreachable",
     f_reach: "No printer answers at this address. Check the IP and that it is on the same network.", f_auth: "Printer found, but the Access Code was rejected.", f_status: "Connected, but no status arrived. Check the serial number.",
     state: "state",
+    sMine: "My printers", addPrinter: "+ Add printer", edit: "Edit", del: "Remove", newPrinter: "new printer",
+    delConfirm: "Remove printer \"{name}\" from the dashboard? Its print history stays.", added: "already added", e_duplicate: "This printer is already added",
     sCost: "Print cost", sCostLead: "Used to price each print and for statistics. Leave a field empty to ignore it.",
     cCur: "Currency", cDef: "Default plastic, per kg", cTypes: "Price per kg by material", cPower: "Average power while printing, W",
     cPowerHint: "About 180 W for the H2S. A metering plug would make it exact.", cDay: "Day tariff, per kWh", cNight: "Night tariff, per kWh",
@@ -264,14 +283,19 @@ const I18N = {
 let lang = "ru";
 try { lang = localStorage.getItem("lang") === "en" ? "en" : "ru"; } catch {}
 const t = (k, vars = {}) => String(I18N[lang][k] ?? I18N.ru[k] ?? k).replace(/\{(\w+)\}/g, (_, v) => vars[v] ?? "");
-let conf = null, lastScan = null, lastSteps = null;
+let conf = null, lastScan = null, lastSteps = null, currentP = "new";
+const curConf = () => (conf && conf.printers || []).find((p) => p.id === currentP);
 
 function applyLang() {
   document.documentElement.lang = lang;
   document.querySelectorAll("[data-i18n]").forEach((e) => { e.textContent = t(e.dataset.i18n); });
   document.querySelectorAll("#lang button").forEach((b) => b.classList.toggle("on", b.dataset.lang === lang));
   $("help").innerHTML = I18N[lang].help.map((h) => `<div>${h}</div>`).join("");
-  if (conf && conf.has_code) { $("code").placeholder = "••••••••"; $("code-hint").textContent = t("codeSaved"); }
+  const cc = curConf();
+  $("code").placeholder = cc && cc.has_code ? "••••••••" : "12ab34cd";
+  $("code-hint").textContent = cc && cc.has_code ? t("codeSaved") : t("codeHint");
+  $("editing").textContent = cc ? cc.name : t("newPrinter");
+  renderPrinters();
   if (conf && conf.has_password) $("pw-hint").textContent = t("pwSet");
   if (lastScan) renderScan(lastScan);
   if (lastSteps) renderSteps(lastSteps);
@@ -293,11 +317,12 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 
 function renderScan(r) {
   const net = (r.subnets || []).join(", ") || "LAN";
-  $("found").innerHTML = r.printers.map((p) => `<button type="button" class="printer ${p.host === $("host").value ? "on" : ""}" data-host="${esc(p.host)}" data-serial="${esc(p.serial)}"><i class="dot"></i><b>${esc(p.host)}</b><span>${esc(p.serial)}</span></button>`).join("");
+  $("found").innerHTML = r.printers.map((p) => `<button type="button" class="printer ${p.host === $("host").value ? "on" : ""}" data-host="${esc(p.host)}" data-serial="${esc(p.serial)}" data-added="${esc(p.added || "")}"><i class="dot"></i><b>${esc(p.host)}</b>${p.added ? `<i class="tag">${t("added")}</i>` : ""}<span>${esc(p.serial)}</span></button>`).join("");
   $("scan-note").textContent = r.printers.length ? t("scanFound", { net, n: r.printers.length }) : t("scanNone", { net });
 }
 $("found").onclick = (e) => {
   const b = e.target.closest(".printer"); if (!b) return;
+  if (b.dataset.added) selectPrinter(b.dataset.added); else if (curConf()) selectPrinter("new");
   $("host").value = b.dataset.host; $("serial").value = b.dataset.serial;
   document.querySelectorAll(".printer").forEach((x) => x.classList.toggle("on", x === b));
   $("code").focus();
@@ -310,7 +335,7 @@ $("scan").onclick = async () => {
 };
 
 function formData() {
-  return { host: $("host").value.trim(), access_code: $("code").value.trim(), serial: $("serial").value.trim().toUpperCase(),
+  return { p: currentP, host: $("host").value.trim(), access_code: $("code").value.trim(), serial: $("serial").value.trim().toUpperCase(),
            name: $("name").value.trim(), port: $("port").value.trim(),
            new_password: $("pw").value, remove_password: $("pw-remove").checked, costs: costsData() };
 }
@@ -367,12 +392,41 @@ $("form").onsubmit = async (e) => {
     if (r.error === "auth") return showGate();
     if (!r.ok) { markBad(r.error); showMsg("err", t("e_" + r.error)); }
     else if (r.restart_needed) { showMsg("ok", t("savedRestart")); }
-    else { showMsg("ok", t("savedOk")); setTimeout(() => (location.href = "/"), 1200); }
+    else { showMsg("ok", t("savedOk")); setTimeout(() => (location.href = "/?p=" + encodeURIComponent(r.p || currentP)), 1200); }
   } catch { showMsg("err", t("e_net")); }
   busy($("save"), false);
 };
 $("eye").onclick = () => { const c = $("code"); c.type = c.type === "password" ? "text" : "password"; };
 
+function renderPrinters() {
+  const list = (conf && conf.printers) || [];
+  $("mine").hidden = !list.length;
+  $("plist").innerHTML = list.map((p) => `<div class="prow ${p.id === currentP ? "on" : ""}">
+    <div><b>${esc(p.name)}</b><br><span>${esc(p.host || "")} · ${esc(p.serial || "")}</span></div><div class="sp"></div>
+    <button type="button" data-edit="${esc(p.id)}">${t("edit")}</button><button type="button" class="del" data-del="${esc(p.id)}">${t("del")}</button></div>`).join("");
+}
+function selectPrinter(id, quiet) {
+  currentP = id;
+  const c = curConf();
+  $("host").value = c ? c.host || "" : ""; $("serial").value = c ? c.serial || "" : "";
+  $("name").value = c && c.name !== "Bambu" ? c.name : ""; $("code").value = "";
+  $("steps").hidden = true; showMsg("", "");
+  applyLang();
+  if (!quiet) $("form").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+$("plist").onclick = async (e) => {
+  const ed = e.target.closest("[data-edit]"), del = e.target.closest("[data-del]");
+  if (ed) selectPrinter(ed.dataset.edit);
+  if (del) {
+    const p = conf.printers.find((x) => x.id === del.dataset.del);
+    if (!confirm(t("delConfirm", { name: p.name }))) return;
+    const r = await post("/api/printer/delete", { p: p.id });
+    if (r.error === "auth") return showGate();
+    conf = await (await fetch("/api/config")).json();
+    selectPrinter(conf.printers.length ? conf.printers[0].id : "new", true);
+  }
+};
+$("add").onclick = () => { selectPrinter("new"); $("scan").click(); };
 function showGate() {
   document.querySelectorAll(".card.main").forEach((c) => (c.hidden = true));
   $("gate").hidden = false; applyLang(); setTimeout(() => $("gate-pw").focus(), 30);
@@ -388,14 +442,15 @@ $("gate-form").onsubmit = async (e) => {
     const sess = await (await fetch("/api/session")).json();
     if (sess.required && !sess.authed) return showGate();
     conf = await (await fetch("/api/config")).json();
-    $("host").value = conf.host || ""; $("serial").value = conf.serial || "";
-    $("name").value = conf.name && conf.name !== "Bambu" ? conf.name : ""; $("port").value = conf.port || "";
-    $("back").hidden = !conf.configured;
+    $("port").value = conf.port || "";
+    $("back").hidden = !conf.printers.some((p) => p.configured);
+    const want = new URLSearchParams(location.search).get("p");
+    selectPrinter(conf.printers.some((p) => p.id === want) ? want : conf.printers.length ? conf.printers[0].id : "new", true);
     $("pw-remove-wrap").hidden = !conf.has_password;
     fillCosts(conf.costs);
   } catch {}
   applyLang();
-  if (!conf || !conf.configured) $("scan").click();
+  if (!conf || !conf.printers.length) $("scan").click();
 })();
 
 /* starfield, same as the dashboard but lighter */
