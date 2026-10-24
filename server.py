@@ -8,12 +8,16 @@ RTSPS (322) for the camera via ffmpeg, implicit FTPS (990) for the job's .3mf
 import collections
 import concurrent.futures
 import ftplib
+import hashlib
+import hmac
 import io
 import ipaddress
 import json
 import os
 import queue
 import re
+import secrets
+import signal
 import socket
 import ssl
 import struct
@@ -29,7 +33,8 @@ import paho.mqtt.client as mqtt
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 CFG_PATH = os.path.join(BASE, "config.json")
-DEFAULTS = {"host": "", "serial": "", "access_code": "", "name": "Bambu", "port": 8790}
+DEFAULTS = {"host": "", "serial": "", "access_code": "", "name": "Bambu", "port": 8790,
+            "password_hash": "", "session_secret": ""}
 
 
 def load_cfg():
@@ -50,6 +55,21 @@ def save_cfg(c):
 
 
 cfg = load_cfg()
+
+try:
+    with open(os.path.join(BASE, "data", "hms.json"), encoding="utf-8") as _f:
+        HMS_DB = json.load(_f)  # refreshed by tools/update_hms.py
+except (OSError, ValueError):
+    HMS_DB = {"hms": {}, "error": {}}
+
+
+def hms_text(code):
+    """Bambu's own description for an HMS code like 0300_0100_0001_0001, in both languages."""
+    return HMS_DB["hms"].get(code.replace("_", ""))
+
+
+def error_text(code_hex):
+    return HMS_DB["error"].get(code_hex)
 cfg_changed = threading.Event()
 PORT = int(os.environ.get("PORT") or cfg.get("port") or 8790)
 
@@ -66,8 +86,62 @@ FFMPEG = _local_ff if os.path.exists(_local_ff) else "ffmpeg"
 FF_IN = ["-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-tls_verify", "0", "-timeout", "10000000"]
 
 
+class Relay:
+    """Loopback TCP relay to the printer's RTSPS port.
+
+    macOS blocks LAN access for binaries started by launchd until the user approves them, and a
+    command-line ffmpeg never shows up in Privacy & Security > Local Network to be approved. So
+    ffmpeg talks to 127.0.0.1 and this process (which does have LAN access) forwards the bytes.
+    TLS stays end-to-end between ffmpeg and the printer; the relay never decrypts anything.
+    """
+
+    def __init__(self):
+        self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.srv.bind(("127.0.0.1", 0))
+        self.srv.listen(8)
+        self.port = self.srv.getsockname()[1]
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self):
+        while True:
+            conn, _ = self.srv.accept()
+            threading.Thread(target=self._handle, args=(conn,), daemon=True).start()
+
+    def _handle(self, conn):
+        try:
+            up = socket.create_connection((cfg["host"], 322), timeout=10)
+        except OSError:
+            conn.close()
+            return
+        up.settimeout(None)
+        threading.Thread(target=self._pipe, args=(up, conn), daemon=True).start()
+        self._pipe(conn, up)
+
+    @staticmethod
+    def _pipe(src, dst):
+        try:
+            while True:
+                data = src.recv(65536)
+                if not data:
+                    break
+                dst.sendall(data)
+        except OSError:
+            pass
+        finally:
+            # Closing both ends tears the printer session down as soon as ffmpeg goes away.
+            for sock in (src, dst):
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                sock.close()
+
+
+relay = Relay()
+
+
 def rtsp_url():
-    return f"rtsps://bblp:{cfg['access_code']}@{cfg['host']}:322/streaming/live/1"
+    return f"rtsps://bblp:{cfg['access_code']}@127.0.0.1:{relay.port}/streaming/live/1"
 
 # Every user-facing string goes out as {"ru": ..., "en": ...}; the page picks the language.
 def L(ru, en):
@@ -280,7 +354,8 @@ def build_view():
         "nozzle": {"type": p.get("nozzle_type"), "diameter": p.get("nozzle_diameter")},
         "ai": {"spaghetti": xc.get("spaghetti_detector"), "first_layer": xc.get("first_layer_inspector"),
                "halt": xc.get("print_halt"), "sensitivity": xc.get("halt_print_sensitivity")},
-        "errors": {"print": f"{perr:08X}" if perr else None, "hms": hms},
+        "errors": {"print": f"{perr:08X}" if perr else None, "print_text": error_text(f"{perr:08X}") if perr else None,
+                   "hms": [{"code": c, "text": hms_text(c)} for c in hms]},
         "job": {"started_at": job.get("started_at"), "thumb": bool(job.get("thumb")),
                 "thumb_v": job.get("fetched_for") or "", "weight_g": meta.get("weight"),
                 "prediction_s": meta.get("prediction"), "filaments": meta.get("filaments") or []},
@@ -313,12 +388,15 @@ def track_transitions():
     err = p.get("print_error") or 0
     if err != prev["err"]:
         if err:
-            log_event("error", L(f"Ошибка печати {int(err):08X}", f"Print error {int(err):08X}"))
+            code = f"{int(err):08X}"
+            txt = error_text(code) or L("", "")
+            log_event("error", L(f"Ошибка печати {code}. {txt['ru']}".strip(" ."), f"Print error {code}. {txt['en']}".strip(" .")))
         prev["err"] = err
     hms = tuple(_hms_code(h) for h in p.get("hms") or [])
     if hms != prev["hms"]:
         for code in set(hms) - set(prev["hms"]):
-            log_event("error", L(f"HMS {code}", f"HMS {code}"))
+            txt = hms_text(code) or L("", "")
+            log_event("error", L(f"HMS {code}. {txt['ru']}".strip(" ."), f"HMS {code}. {txt['en']}".strip(" .")))
         prev["hms"] = hms
 
 
@@ -389,9 +467,13 @@ def reset_state():
 
 
 def apply_cfg(new):
-    """Save settings and reconnect everything to the (possibly different) printer."""
+    """Save settings; reconnect everything only if the printer connection itself changed."""
+    reconnect = any(new.get(k, cfg[k]) != cfg[k] for k in ("host", "serial", "access_code"))
     cfg.update(new)
     save_cfg(cfg)
+    if not reconnect:
+        dirty.set()
+        return
     reset_state()
     camera.restart()
     h264.restart()
@@ -806,7 +888,7 @@ COMMANDS = {
     "pause": lambda a: {"print": {"command": "pause", "param": ""}},
     "resume": lambda a: {"print": {"command": "resume", "param": ""}},
     "stop": lambda a: {"print": {"command": "stop", "param": ""}},
-    "speed": lambda a: {"print": {"command": "print_speed", "param": str(int(a.get("level", 2)))}},
+    "speed": lambda a: {"print": {"command": "print_speed", "param": str(a["level"])}},
 }
 
 
@@ -816,17 +898,87 @@ def light_cmds(on):
             for node in ("chamber_light", "chamber_light2")]
 
 
+# ---------- optional password for controls and settings ----------
+
+SESSION_COOKIE = "mc_session"
+SESSION_DAYS = 30
+login_failures = {}  # ip -> (count, first_failure_time)
+
+
+def hash_password(pw, salt=None):
+    salt = salt or secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, 200_000)
+    return f"pbkdf2${salt.hex()}${digest.hex()}"
+
+
+def check_password(pw, stored):
+    try:
+        _, salt, digest = stored.split("$")
+        return hmac.compare_digest(hash_password(pw, bytes.fromhex(salt)).split("$")[2], digest)
+    except ValueError:
+        return False
+
+
+def auth_required():
+    return bool(cfg.get("password_hash"))
+
+
+def make_token():
+    # Stateless: expiry signed with a per-password secret, so changing the password logs everyone out.
+    exp = str(int(time.time()) + SESSION_DAYS * 86400)
+    sig = hmac.new(cfg["session_secret"].encode(), exp.encode(), "sha256").hexdigest()
+    return f"{exp}.{sig}"
+
+
+def token_ok(tok):
+    try:
+        exp, sig = tok.split(".")
+        good = hmac.new(cfg.get("session_secret", "").encode(), exp.encode(), "sha256").hexdigest()
+        return int(exp) > time.time() and hmac.compare_digest(sig, good)
+    except (ValueError, AttributeError):
+        return False
+
+
+STATIC_TYPES = {".png": "image/png", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json",
+                ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def _send(self, code, body, ctype):
+    def _send(self, code, body, ctype, headers=(), cache="no-store"):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
+        for k, v in headers:
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
+
+    def _authed(self):
+        if not auth_required():
+            return True
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == SESSION_COOKIE and token_ok(v):
+                return True
+        return False
+
+    def _deny(self):
+        self._json(401, {"ok": False, "error": "auth"})
+
+    def _session_cookie(self, token, max_age):
+        return ("Set-Cookie", f"{SESSION_COOKIE}={token}; Max-Age={max_age}; Path=/; HttpOnly; SameSite=Strict")
+
+    def _static(self, name):
+        path = os.path.normpath(os.path.join(BASE, "static", name))
+        ext = os.path.splitext(path)[1]
+        if not path.startswith(os.path.join(BASE, "static") + os.sep) or ext not in STATIC_TYPES or not os.path.isfile(path):
+            return self._send(404, b"not found", "text/plain")
+        with open(path, "rb") as f:
+            self._send(200, f.read(), STATIC_TYPES[ext], cache="max-age=86400")
 
     def _json(self, code, obj):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
@@ -847,11 +999,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._page("index.html")
         if path == "/setup":
             return self._page("setup.html")
+        if path.startswith("/static/"):
+            return self._static(path[len("/static/"):])
+        if path == "/manifest.webmanifest":
+            return self._static("manifest.webmanifest")
+        if path == "/api/session":
+            return self._json(200, {"required": auth_required(), "authed": self._authed()})
+        if path in ("/api/config", "/api/discover") and not self._authed():
+            return self._deny()
         if path == "/api/config":
             # Never hand the access code back out, only whether one is stored.
             return self._json(200, {"host": cfg["host"], "serial": cfg["serial"], "name": cfg["name"],
                                     "port": cfg["port"], "running_port": PORT,
-                                    "has_code": bool(cfg["access_code"]), "configured": configured()})
+                                    "has_code": bool(cfg["access_code"]), "configured": configured(),
+                                    "has_password": auth_required()})
         if path == "/api/discover":
             return self._json(200, {"printers": discover(), "subnets": [str(n) for n in local_subnets()]})
         if path == "/events":
@@ -876,6 +1037,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, b"bad json", "text/plain")
         if not isinstance(a, dict):
             return self._send(400, b"bad json", "text/plain")
+        if self.path == "/api/login":
+            return self._login(a)
+        if self.path == "/api/logout":
+            return self._send(200, b'{"ok":true}', "application/json", headers=[self._session_cookie("", 0)])
+        if self.path in ("/api/cmd", "/api/test", "/api/config") and not self._authed():
+            return self._deny()
         if self.path == "/api/cmd":
             return self._cmd(a)
         if self.path == "/api/test":
@@ -924,8 +1091,37 @@ class Handler(BaseHTTPRequestHandler):
         if not 1024 <= port <= 65535:
             return self._json(400, {"ok": False, "error": "port"})
         name = (str(a.get("name") or "").strip() or "Bambu")[:40]
-        apply_cfg({"host": host, "serial": serial, "access_code": code, "name": name, "port": port})
-        self._json(200, {"ok": True, "serial": serial, "restart_needed": port != PORT})
+        new = {"host": host, "serial": serial, "access_code": code, "name": name, "port": port}
+        headers = []
+        pw = str(a.get("new_password") or "")
+        if pw:
+            if not 4 <= len(pw) <= 128:
+                return self._json(400, {"ok": False, "error": "password"})
+            new.update(password_hash=hash_password(pw), session_secret=secrets.token_hex(32))
+        elif a.get("remove_password"):
+            new.update(password_hash="", session_secret="")
+        apply_cfg(new)
+        if pw:  # keep the person who just set the password logged in
+            headers.append(self._session_cookie(make_token(), SESSION_DAYS * 86400))
+        self._send(200, json.dumps({"ok": True, "serial": serial, "restart_needed": port != PORT}).encode(),
+                   "application/json", headers=headers)
+
+    def _login(self, a):
+        ip = self.client_address[0]
+        count, since = login_failures.get(ip, (0, time.time()))
+        if time.time() - since > 300:
+            count, since = 0, time.time()
+        if count >= 5:
+            return self._json(429, {"ok": False, "error": "too_many"})
+        if not auth_required():
+            return self._json(200, {"ok": True})
+        if not check_password(str(a.get("password") or ""), cfg["password_hash"]):
+            login_failures[ip] = (count + 1, since)
+            time.sleep(0.7)
+            return self._json(403, {"ok": False, "error": "wrong"})
+        login_failures.pop(ip, None)
+        self._send(200, b'{"ok":true}', "application/json",
+                   headers=[self._session_cookie(make_token(), SESSION_DAYS * 86400)])
 
     def _cmd(self, a):
         if not configured():
@@ -934,6 +1130,8 @@ class Handler(BaseHTTPRequestHandler):
         if act == "light":
             for c in light_cmds(bool(a.get("on"))):
                 send(c)
+        elif act == "speed" and a.get("level") not in (1, 2, 3, 4):
+            return self._send(400, b"bad speed level", "text/plain")
         elif act in COMMANDS:
             send(COMMANDS[act](a))
         else:
@@ -1019,7 +1217,16 @@ class Handler(BaseHTTPRequestHandler):
             camera.release()
 
 
+def shutdown(*_):
+    # ffmpeg stuck on a dead stream ignores SIGTERM and would outlive us holding a printer session.
+    for cam in (camera, h264):
+        cam._stop(kill=True)
+    os._exit(0)
+
+
 def main():
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
     for target in (mqtt_loop, sampler, broadcaster):
         threading.Thread(target=target, daemon=True).start()
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)

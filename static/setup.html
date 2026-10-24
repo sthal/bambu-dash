@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#04050d">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
 <title>Mission Control Setup</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -71,6 +74,9 @@ input::placeholder { color: var(--faint); }
 .eye { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border: 0; background: transparent; color: var(--dim); cursor: pointer; padding: 6px; }
 .eye svg { width: 18px; height: 18px; display: block; }
 .hint { color: var(--faint); font-size: 12px; line-height: 1.45; }
+label.check { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font: 500 13px var(--sans); color: var(--dim); cursor: pointer; }
+label.check input { width: auto; }
+.gate { max-width: 380px; margin: 40px auto; display: grid; gap: 12px; }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
 .steps { list-style: none; margin: 16px 0 0; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: rgba(255,255,255,.03); display: grid; gap: 8px; }
 .steps li { display: flex; gap: 10px; align-items: center; font-size: 14px; }
@@ -101,7 +107,17 @@ input::placeholder { color: var(--faint); }
     <a class="back" href="/" id="back" hidden data-i18n="back">← Дашборд</a>
   </header>
 
-  <section class="card">
+  <section class="card gate" id="gate" hidden>
+    <h2 data-i18n="gateTitle">Вход в настройки</h2>
+    <p class="lead" data-i18n="gateText">Настройки защищены паролем.</p>
+    <form id="gate-form" class="field">
+      <input id="gate-pw" type="password" autocomplete="current-password" required>
+      <div class="hint" id="gate-err"></div>
+      <div class="actions" style="margin-top:6px"><button class="btn primary" data-i18n="login">Войти</button></div>
+    </form>
+  </section>
+
+  <section class="card main">
     <h2><span class="n">1</span><span data-i18n="s1">Найти принтер</span></h2>
     <p class="lead" data-i18n="s1lead">Поищу принтеры Bambu Lab в вашей сети. Компьютер и принтер должны быть в одной сети.</p>
     <button class="btn" id="scan"><span data-i18n="scan">Искать в сети</span></button>
@@ -109,7 +125,7 @@ input::placeholder { color: var(--faint); }
     <div class="note" id="scan-note"></div>
   </section>
 
-  <section class="card">
+  <section class="card main">
     <h2><span class="n">2</span><span data-i18n="s2">Данные подключения</span></h2>
     <p class="lead" data-i18n="s2lead">Access Code хранится только на этом компьютере, в config.json. Наружу сервер его не отдаёт.</p>
     <form id="form" autocomplete="off">
@@ -142,6 +158,12 @@ input::placeholder { color: var(--faint); }
           <input id="port" name="port" type="number" min="1024" max="65535" placeholder="8790">
           <div class="hint" data-i18n="portHint">Смена порта применится после перезапуска</div>
         </div>
+        <div class="field">
+          <label for="pw" data-i18n="pw">Пароль на пульт</label>
+          <input id="pw" type="password" autocomplete="new-password" placeholder="••••">
+          <div class="hint" id="pw-hint" data-i18n="pwHint">Необязательно. Смотреть можно без пароля, управлять и менять настройки только с ним</div>
+          <label class="check" id="pw-remove-wrap" hidden><input type="checkbox" id="pw-remove"> <span data-i18n="pwRemove">Убрать пароль</span></label>
+        </div>
       </div>
       <div class="actions">
         <button type="button" class="btn" id="test"><span data-i18n="test">Проверить связь</span></button>
@@ -152,7 +174,7 @@ input::placeholder { color: var(--faint); }
     </form>
   </section>
 
-  <section class="card">
+  <section class="card main">
     <h2><span class="n">?</span><span data-i18n="s3">Подсказки</span></h2>
     <div class="help" id="help"></div>
   </section>
@@ -177,6 +199,10 @@ const I18N = {
     e_code_required: "Введите Access Code: для другого принтера сохранённый не используется", e_port: "Порт должен быть от 1024 до 65535", e_net: "Сервер дашборда недоступен",
     f_reach: "Принтер не отвечает по этому адресу. Проверьте IP и что он в той же сети.", f_auth: "Принтер найден, но Access Code не подошёл.", f_status: "Подключились, но статус не пришёл. Проверьте серийный номер.",
     state: "состояние",
+    pw: "Пароль на пульт", pwHint: "Необязательно. Смотреть можно без пароля, управлять и менять настройки только с ним",
+    pwSet: "Пароль задан. Введите новый, чтобы сменить", pwRemove: "Убрать пароль",
+    e_password: "Пароль: от 4 до 128 символов", e_auth: "Нужно войти заново", gateTitle: "Вход в настройки", gateText: "Настройки защищены паролем.",
+    login: "Войти", wrongPw: "Неверный пароль", tooMany: "Слишком много попыток, подождите 5 минут",
     help: [
       "<b>IP и Access Code</b> — на экране принтера: Настройки → Сеть (WLAN). Код из 8 символов меняется, если включить и выключить LAN Only.",
       "<b>Камера</b> — включите на принтере <code>LAN Mode Liveview</code>, иначе видео не будет.",
@@ -199,6 +225,10 @@ const I18N = {
     e_code_required: "Enter the Access Code: the stored one is never reused for a different printer", e_port: "Port must be between 1024 and 65535", e_net: "Dashboard server unreachable",
     f_reach: "No printer answers at this address. Check the IP and that it is on the same network.", f_auth: "Printer found, but the Access Code was rejected.", f_status: "Connected, but no status arrived. Check the serial number.",
     state: "state",
+    pw: "Console password", pwHint: "Optional. Anyone can watch; controlling and changing settings needs it",
+    pwSet: "A password is set. Type a new one to change it", pwRemove: "Remove password",
+    e_password: "Password: 4 to 128 characters", e_auth: "Please log in again", gateTitle: "Settings login", gateText: "Settings are password-protected.",
+    login: "Log in", wrongPw: "Wrong password", tooMany: "Too many attempts, wait 5 minutes",
     help: [
       "<b>IP and Access Code</b> are on the printer screen: Settings → Network (WLAN). The 8-character code changes if you toggle LAN Only.",
       "<b>Camera</b>: enable <code>LAN Mode Liveview</code> on the printer, otherwise there is no video.",
@@ -218,6 +248,7 @@ function applyLang() {
   document.querySelectorAll("#lang button").forEach((b) => b.classList.toggle("on", b.dataset.lang === lang));
   $("help").innerHTML = I18N[lang].help.map((h) => `<div>${h}</div>`).join("");
   if (conf && conf.has_code) { $("code").placeholder = "••••••••"; $("code-hint").textContent = t("codeSaved"); }
+  if (conf && conf.has_password) $("pw-hint").textContent = t("pwSet");
   if (lastScan) renderScan(lastScan);
   if (lastSteps) renderSteps(lastSteps);
 }
@@ -256,11 +287,12 @@ $("scan").onclick = async () => {
 
 function formData() {
   return { host: $("host").value.trim(), access_code: $("code").value.trim(), serial: $("serial").value.trim().toUpperCase(),
-           name: $("name").value.trim(), port: $("port").value.trim() };
+           name: $("name").value.trim(), port: $("port").value.trim(),
+           new_password: $("pw").value, remove_password: $("pw-remove").checked };
 }
 function markBad(err) {
-  ["host", "code", "serial", "port"].forEach((f) => $(f).classList.remove("bad"));
-  const map = { host: "host", code: "code", code_required: "code", serial: "serial", port: "port" };
+  ["host", "code", "serial", "port", "pw"].forEach((f) => $(f).classList.remove("bad"));
+  const map = { host: "host", code: "code", code_required: "code", serial: "serial", port: "port", password: "pw" };
   if (map[err]) $(map[err]).classList.add("bad");
 }
 function renderSteps(r) {
@@ -281,6 +313,7 @@ $("test").onclick = async () => {
   busy($("test"), true, "testing"); showMsg("", ""); $("steps").hidden = true; markBad();
   try {
     const r = await post("/api/test", formData());
+    if (r.error === "auth") return showGate();
     if (r.error) { markBad(r.error); showMsg("err", t("e_" + r.error)); }
     else { lastSteps = r; renderSteps(r); if (r.serial && !$("serial").value) $("serial").value = r.serial; }
   } catch { showMsg("err", t("e_net")); }
@@ -291,6 +324,7 @@ $("form").onsubmit = async (e) => {
   busy($("save"), true, "saving"); showMsg("", ""); markBad();
   try {
     const r = await post("/api/config", formData());
+    if (r.error === "auth") return showGate();
     if (!r.ok) { markBad(r.error); showMsg("err", t("e_" + r.error)); }
     else if (r.restart_needed) { showMsg("ok", t("savedRestart")); }
     else { showMsg("ok", t("savedOk")); setTimeout(() => (location.href = "/"), 1200); }
@@ -299,12 +333,25 @@ $("form").onsubmit = async (e) => {
 };
 $("eye").onclick = () => { const c = $("code"); c.type = c.type === "password" ? "text" : "password"; };
 
+function showGate() {
+  document.querySelectorAll(".card.main").forEach((c) => (c.hidden = true));
+  $("gate").hidden = false; applyLang(); setTimeout(() => $("gate-pw").focus(), 30);
+}
+$("gate-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: $("gate-pw").value }) });
+  if (r.ok) location.reload(); else $("gate-err").textContent = r.status === 429 ? t("tooMany") : t("wrongPw");
+};
+
 (async () => {
   try {
+    const sess = await (await fetch("/api/session")).json();
+    if (sess.required && !sess.authed) return showGate();
     conf = await (await fetch("/api/config")).json();
     $("host").value = conf.host || ""; $("serial").value = conf.serial || "";
     $("name").value = conf.name && conf.name !== "Bambu" ? conf.name : ""; $("port").value = conf.port || "";
     $("back").hidden = !conf.configured;
+    $("pw-remove-wrap").hidden = !conf.has_password;
   } catch {}
   applyLang();
   if (!conf || !conf.configured) $("scan").click();

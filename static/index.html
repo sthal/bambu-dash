@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#04050d">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mission">
 <title>H2S Mission Control</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -252,6 +259,20 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
 @keyframes alertp { 50% { box-shadow: 0 0 50px rgba(255,77,106,.45); } }
 .alert a { color: #fff; }
 
+.icon-btn.off { opacity: .45; }
+.icon-btn.on { border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 12px rgba(72,224,255,.3); }
+.modal { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 16px; background: rgba(2,3,10,.7); backdrop-filter: blur(6px); }
+.modal form { width: min(360px, 100%); background: var(--panel-hi); border: 1px solid var(--line-hi); border-radius: 20px; padding: 22px; display: grid; gap: 12px; box-shadow: 0 0 40px rgba(157,123,255,.25); }
+.modal h3 { margin: 0; font-size: 17px; }
+.modal p { margin: 0; color: var(--dim); font-size: 13px; }
+.modal input { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: rgba(4,5,13,.6); color: var(--text); font: 500 15px var(--mono); outline: none; }
+.modal input:focus { border-color: var(--cyan); }
+.modal .err { color: #ff8da0; font-size: 13px; min-height: 1em; }
+.modal .row { display: flex; gap: 8px; justify-content: flex-end; }
+.modal button { border-radius: 11px; border: 1px solid var(--line-hi); background: rgba(255,255,255,.05); color: var(--text); font: 700 14px var(--sans); padding: 10px 16px; cursor: pointer; }
+.modal button.primary { background: linear-gradient(135deg, rgba(72,224,255,.3), rgba(157,123,255,.4)); border-color: rgba(157,123,255,.7); }
+.alert #alert-t > div + div { margin-top: 8px; }
+.alert .hms { display: block; margin-top: 4px; font-weight: 500; color: #ffd0d8; }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 120px); z-index: 20; padding: 12px 18px; border-radius: 14px;
   background: var(--panel-hi); border: 1px solid var(--line-hi); backdrop-filter: blur(12px); font-weight: 600; visibility: hidden; transition: transform .35s cubic-bezier(.2,.9,.3,1.3), visibility 0s .35s; }
 .toast.show { transform: translate(-50%, 0); visibility: visible; transition-delay: 0s; }
@@ -308,6 +329,9 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
       <span class="chip opt" id="nozzle-chip">сопло —</span>
       <span class="chip" title="Wi-Fi"><span class="bars" id="wifi"><i style="height:4px"></i><i style="height:7px"></i><i style="height:10px"></i><i style="height:12px"></i></span><b id="wifi-v">—</b></span>
       <span id="clock">--:--</span>
+      <button class="icon-btn" id="b-sound" data-i18n-title="sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path class="wave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/><path class="mute" d="M16 9l5 6M21 9l-5 6" hidden/></svg></button>
+      <button class="icon-btn" id="b-notify" data-i18n-title="notify"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></button>
+      <button class="icon-btn" id="b-lock" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path class="shackle" d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
       <a class="icon-btn" href="/setup" data-i18n-title="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
     </div>
   </header>
@@ -421,6 +445,15 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
   </main>
 </div>
 <div class="toast" id="toast"></div>
+<div class="modal" id="login" hidden>
+  <form id="login-form" autocomplete="on">
+    <h3 data-i18n="loginTitle">Пульт защищён паролем</h3>
+    <p data-i18n="loginText">Смотреть можно без пароля, а управлять принтером только после входа.</p>
+    <input type="password" id="login-pw" autocomplete="current-password" required>
+    <div class="err" id="login-err"></div>
+    <div class="row"><button type="button" id="login-cancel" data-i18n="cancel">Отмена</button><button class="primary" data-i18n="login">Войти</button></div>
+  </form>
+</div>
 
 <script>
 "use strict";
@@ -447,6 +480,11 @@ const I18N = {
     quiet: "Пока тихо", ringProgress: "прогресс", ringLanded: "приземлились", ringDock: "на стапеле",
     noJob: "Нет активного задания", layerCaps: "СЛОЙ", printError: "Ошибка печати", offline: "Нет связи с принтером",
     settings: "Настройки", serverDown: "Сервер недоступен", cmdSent: "Команда отправлена", cmdFail: "Ошибка отправки",
+    sound: "Звук событий", notify: "Уведомления", notifyNeedsSecure: "Уведомления браузера работают только на localhost или по HTTPS",
+    notifyOn: "Уведомления включены", notifyDenied: "Браузер запретил уведомления", soundOn: "Звук включён", soundOff: "Звук выключен",
+    loginTitle: "Пульт защищён паролем", loginText: "Смотреть можно без пароля, а управлять принтером только после входа.",
+    login: "Войти", logout: "Выйти", locked: "Войти для управления", cancel: "Отмена", wrongPw: "Неверный пароль", tooMany: "Слишком много попыток, подождите 5 минут",
+    nFinish: "Печать готова", nFailed: "Печать сорвалась", nPause: "Печать на паузе", nError: "Ошибка принтера",
   },
   en: {
     connecting: "Connecting…", aiTitle: "AI print monitoring", camConnecting: "CONNECTING TO CAMERA…", camAlt: "Printer camera",
@@ -464,6 +502,11 @@ const I18N = {
     quiet: "All quiet", ringProgress: "progress", ringLanded: "landed", ringDock: "docked",
     noJob: "No active job", layerCaps: "LAYER", printError: "Print error", offline: "Printer offline",
     settings: "Settings", serverDown: "Server unreachable", cmdSent: "Command sent", cmdFail: "Send failed",
+    sound: "Event sounds", notify: "Notifications", notifyNeedsSecure: "Browser notifications only work on localhost or over HTTPS",
+    notifyOn: "Notifications on", notifyDenied: "The browser blocked notifications", soundOn: "Sound on", soundOff: "Sound off",
+    loginTitle: "Console is password-protected", loginText: "Anyone can watch; controlling the printer needs a login.",
+    login: "Log in", logout: "Log out", locked: "Log in to control", cancel: "Cancel", wrongPw: "Wrong password", tooMany: "Too many attempts, wait 5 minutes",
+    nFinish: "Print finished", nFailed: "Print failed", nPause: "Print paused", nError: "Printer error",
   },
 };
 let lang = "ru";
@@ -544,8 +587,111 @@ function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add
 async function cmd(action, extra = {}) {
   try {
     const r = await fetch("/api/cmd", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...extra }) });
+    if (r.status === 401) { session.authed = false; renderLock(); return askLogin(() => cmd(action, extra)); }
     toast(r.ok ? t("cmdSent") : t("cmdFail"));
   } catch { toast(t("serverDown")); }
+}
+
+/* ---------- session (optional password for controls) ---------- */
+const session = { required: false, authed: true };
+let afterLogin = null;
+async function loadSession() {
+  try { Object.assign(session, await (await fetch("/api/session")).json()); } catch {}
+  renderLock();
+}
+function renderLock() {
+  const b = $("b-lock");
+  b.hidden = !session.required;
+  b.classList.toggle("on", session.authed);
+  b.title = session.authed ? t("logout") : t("locked");
+  b.querySelector(".shackle").setAttribute("d", session.authed ? "M8 11V7a4 4 0 0 1 7.5-2" : "M8 11V7a4 4 0 0 1 8 0v4");
+}
+function askLogin(then) {
+  afterLogin = then || null;
+  $("login-err").textContent = ""; $("login-pw").value = "";
+  $("login").hidden = false; setTimeout(() => $("login-pw").focus(), 30);
+}
+$("login-cancel").onclick = () => { $("login").hidden = true; afterLogin = null; };
+$("login-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: $("login-pw").value }) });
+  if (r.ok) {
+    session.authed = true; renderLock(); $("login").hidden = true;
+    const next = afterLogin; afterLogin = null; if (next) next();
+  } else $("login-err").textContent = r.status === 429 ? t("tooMany") : t("wrongPw");
+};
+$("b-lock").onclick = async () => {
+  if (!session.authed) return askLogin();
+  await fetch("/api/logout", { method: "POST", body: "{}" });
+  session.authed = false; renderLock();
+};
+
+/* ---------- sound: synthesized chimes, no audio files ---------- */
+let audioCtx = null, soundOn = true;
+try { soundOn = localStorage.getItem("sound") !== "off"; } catch {}
+// Browsers only allow audio after a user gesture, so unlock on the first click/tap.
+addEventListener("pointerdown", () => { try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); } catch {} }, { once: true });
+function tone(freq, start, dur, type = "sine", gain = 0.18) {
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t0 = audioCtx.currentTime + start;
+  o.type = type; o.frequency.value = freq;
+  g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(gain, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.connect(g).connect(audioCtx.destination); o.start(t0); o.stop(t0 + dur + 0.05);
+}
+const CHIMES = {
+  finish: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.13, 0.5)),
+  error: () => { tone(330, 0, 0.35, "square", 0.1); tone(247, 0.4, 0.5, "square", 0.1); },
+  pause: () => { tone(660, 0, 0.25); tone(494, 0.25, 0.4); },
+};
+function chime(kind) { if (soundOn && audioCtx && CHIMES[kind]) try { CHIMES[kind](); } catch {} }
+function renderSound() {
+  const b = $("b-sound");
+  b.classList.toggle("off", !soundOn);
+  b.querySelector(".wave").toggleAttribute("hidden", !soundOn);
+  b.querySelector(".mute").toggleAttribute("hidden", soundOn);
+}
+$("b-sound").onclick = () => {
+  soundOn = !soundOn;
+  try { localStorage.setItem("sound", soundOn ? "on" : "off"); } catch {}
+  renderSound(); toast(soundOn ? t("soundOn") : t("soundOff"));
+  if (soundOn) chime("finish");
+};
+
+/* ---------- browser notifications (secure contexts only: localhost or HTTPS) ---------- */
+const canNotify = "Notification" in window && window.isSecureContext;
+function renderNotify() {
+  const b = $("b-notify");
+  b.classList.toggle("on", canNotify && Notification.permission === "granted");
+  b.classList.toggle("off", !canNotify || Notification.permission === "denied");
+}
+$("b-notify").onclick = async () => {
+  if (!canNotify) return toast(t("notifyNeedsSecure"));
+  const p = await Notification.requestPermission();
+  renderNotify(); toast(p === "granted" ? t("notifyOn") : t("notifyDenied"));
+};
+function notify(title, body) {
+  if (!canNotify || Notification.permission !== "granted") return;
+  try {
+    const n = new Notification(title, { body, icon: "/static/icons/icon-192.png", image: "/snapshot.jpg?t=" + Date.now(), tag: "mission-" + title });
+    n.onclick = () => { window.focus(); n.close(); };
+  } catch {}
+}
+
+/* Events worth a sound/notification, derived from consecutive snapshots of the state. */
+let prevErrKey = null;
+function announce(s, prev) {
+  const name = `${s.name}: ${s.task || ""}`.trim();
+  if (prev && prev !== s.state) {
+    if (s.state === "FINISH") { chime("finish"); notify(t("nFinish"), name); }
+    else if (s.state === "FAILED") { chime("error"); notify(t("nFailed"), name); }
+    else if (s.state === "PAUSE") { chime("pause"); notify(t("nPause"), `${name} · ${tx(s.stage)}`); }
+  }
+  const errs = [s.errors.print, ...(s.errors.hms || []).map((h) => h.code)].filter(Boolean);
+  const key = errs.join(",");
+  if (prevErrKey !== null && key && key !== prevErrKey) {
+    const first = s.errors.print_text ? tx(s.errors.print_text) : (s.errors.hms[0] && tx(s.errors.hms[0].text)) || errs[0];
+    chime("error"); notify(t("nError"), first);
+  }
+  prevErrKey = key;
 }
 
 /* ---------- temperature gauges ---------- */
@@ -746,20 +892,22 @@ function render(s) {
 
   // errors
   const errs = [];
-  if (s.errors.print) errs.push(`${t("printError")} <b>${esc(s.errors.print)}</b>`);
-  (s.errors.hms || []).forEach((c) => errs.push(`HMS <a href="https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/${esc(c)}" target="_blank" rel="noopener">${esc(c)}</a>`));
+  if (s.errors.print) errs.push(`${t("printError")} <b>${esc(s.errors.print)}</b>${s.errors.print_text ? `<span class="hms">${esc(tx(s.errors.print_text))}</span>` : ""}`);
+  (s.errors.hms || []).forEach((h) => errs.push(`HMS <a href="https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/${esc(h.code)}" target="_blank" rel="noopener">${esc(h.code)}</a>${h.text ? `<span class="hms">${esc(tx(h.text))}</span>` : ""}`));
   if (s.state === "OFFLINE") errs.push(t("offline"));
   $("alert").classList.toggle("show", errs.length > 0);
-  $("alert-t").innerHTML = errs.join(" · ");
+  $("alert-t").innerHTML = errs.map((e) => `<div>${e}</div>`).join("");
 
   renderTemps(s); renderAMS(s); renderFans(s); renderAI(s); renderEvents(s);
 
   if (prevState && prevState !== "FINISH" && s.state === "FINISH") fireworks();
+  announce(s, prevState);
   prevState = s.state;
 }
 
 /* ---------- wiring ---------- */
 applyStatic();
+renderSound(); renderNotify(); loadSession();
 buildGauges();
 $("lang").onclick = (e) => {
   const b = e.target.closest("button");
@@ -768,6 +916,7 @@ $("lang").onclick = (e) => {
   try { localStorage.setItem("lang", lang); } catch {}
   applyStatic();
   if (S) render(S);
+  renderLock();
 };
 function connect() {
   const es = new EventSource("/events");
