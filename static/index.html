@@ -1404,15 +1404,15 @@ function renderJobs(d) {
     const frac = j.result === "FINISH" ? 1 : (j.pct || 0) / 100;
     const grams = (j.filaments || []).reduce((a, f) => a + (f.g || 0), 0) * (j.result ? frac : 1);
     const cost = j.cost_filament == null && j.cost_energy == null ? null : (j.cost_filament || 0) + (j.cost_energy || 0);
-    const c = j.currency || cur;
+    const c = j.currency || cur, est = j.result ? "" : "≈";  // a running print shows the up-front estimate
     return `<div class="jobrow" data-job="${j.id}">
       ${img ? `<img src="${img}" alt="" loading="lazy">` : `<span class="noimg"></span>`}
       <div><div class="nm">${esc(j.task || "—")}</div><div class="dt">${fmtDate(j.started)}${j.start_estimated ? " · " + t("estimated") : ""}</div></div>
       <div class="num"><span class="lb">${t("duration")}</span>${fmtDur((end - j.started) / 60)}</div>
       <div class="num"><span class="lb">${t("plastic")}</span>${grams ? grams.toFixed(0) + " " + t("g") : "—"}</div>
-      <div class="num"><span class="lb">${t("costFilShort")}</span>${j.cost_filament == null ? "—" : money(j.cost_filament, c)}</div>
-      <div class="num"><span class="lb">${t("costElShort")}</span>${j.cost_energy == null ? "—" : money(j.cost_energy, c)}</div>
-      <div class="num"><span class="lb">${t("costTotal")}</span>${cost == null ? "—" : `<b style="color:var(--cyan)">${money(cost, c)}</b>`}</div>
+      <div class="num"><span class="lb">${t("costFilShort")}</span>${j.cost_filament == null ? "—" : est + money(j.cost_filament, c)}</div>
+      <div class="num"><span class="lb">${t("costElShort")}</span>${j.cost_energy == null ? "—" : est + money(j.cost_energy, c)}</div>
+      <div class="num"><span class="lb">${t("costTotal")}</span>${cost == null ? "—" : `<b style="color:var(--cyan)">${est}${money(cost, c)}</b>`}</div>
       <span class="res ${res}">${t("res" + res)}${j.result && j.result !== "FINISH" ? ` ${j.pct}%` : ""}</span>
       ${j.result ? `<button class="del" data-id="${j.id}" title="×">×</button>` : "<span></span>"}
     </div>`;
@@ -1589,8 +1589,9 @@ function renderReport() {
     + tile(t("rpDur"), fmtDur((end - d.started) / 60)) + tile(t("rpLayers"), d.layers ? `${d.result === "FINISH" ? d.layers : "—"}<small>/${d.layers}</small>` : "—")
     + tile(t("rpPlastic"), grams ? `${grams.toFixed(1)}<small> ${t("g")}</small>` : "—") + tile(t("rpEnergy"), d.energy_kwh != null ? `${d.energy_kwh.toFixed(2)}<small> ${t("kwh")}</small>` : "—");
   const total = d.cost_filament == null && d.cost_energy == null ? null : (d.cost_filament || 0) + (d.cost_energy || 0);
-  $("rp-money").innerHTML = tile(t("rpCostFil"), d.cost_filament == null ? "—" : money(d.cost_filament, cur))
-    + tile(t("rpCostEl"), d.cost_energy == null ? "—" : money(d.cost_energy, cur)) + tile(t("rpTotal"), total == null ? "—" : money(total, cur));
+  const est = d.result ? "" : "≈";
+  $("rp-money").innerHTML = tile(t("rpCostFil"), d.cost_filament == null ? "—" : est + money(d.cost_filament, cur))
+    + tile(t("rpCostEl"), d.cost_energy == null ? "—" : est + money(d.cost_energy, cur)) + tile(t("rpTotal"), total == null ? "—" : est + money(total, cur));
   $("rp-fils").innerHTML = (d.filaments || []).map((f) => `<div class="fil"><span class="sw" style="background:${esc(f.color)};color:${esc(f.color)}"></span><span>${esc(f.type)}</span><span class="t">${f.m ? f.m.toFixed(2) + " " + t("meters") : ""}</span><span class="g">${f.g ? f.g.toFixed(1) + " " + t("g") : ""}</span></div>`).join("") || "—";
   const smp = d.samples || [];
   $("rp-temps").innerHTML = `<h3>${t("rpTemps")}</h3>` + (smp.length > 1 ? lineChart([

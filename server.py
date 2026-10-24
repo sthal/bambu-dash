@@ -675,6 +675,11 @@ class Printer:
         if rec and rec["start_estimated"]:
             fields["started"] = time.time() - self._elapsed_guess()
             job["started_at"] = fields["started"]
+        # Costs are known up front (slicer grams, predicted time, fixed tariffs): store the estimate now,
+        # finish_job() replaces it with the actual figures.
+        started = fields.get("started") or (rec["started"] if rec else time.time())
+        fil, kwh, cost_e = job_costs(cfg["costs"], fields["filaments"], 1.0, started, started + (meta.get("prediction") or 0))
+        fields.update(cost_filament=fil, cost_energy=cost_e, energy_kwh=kwh, currency=cfg["costs"].get("currency"))
         hist_db.update(jid, **fields)
         job["meta_saved"] = jid
 
