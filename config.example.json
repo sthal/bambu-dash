@@ -1,0 +1,7 @@
+{
+  "host": "192.168.1.50",
+  "serial": "SERIAL_NUMBER",
+  "access_code": "ACCESS_CODE",
+  "name": "H2S",
+  "port": 8790
+}

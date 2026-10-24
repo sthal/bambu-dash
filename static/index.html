@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#04050d">
+<title>H2S Mission Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #04050d;
+  --panel: rgba(13, 17, 38, .58);
+  --panel-hi: rgba(22, 28, 60, .72);
+  --line: rgba(130, 160, 255, .16);
+  --line-hi: rgba(130, 170, 255, .38);
+  --text: #e8edff;
+  --dim: #8890b5;
+  --faint: #4b5378;
+  --cyan: #48e0ff;
+  --violet: #9d7bff;
+  --pink: #ff5fa8;
+  --amber: #ffb547;
+  --green: #3dffaa;
+  --red: #ff4d6a;
+  --state: var(--cyan);
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Space Grotesk", -apple-system, system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); }
+body { overflow-x: hidden; -webkit-font-smoothing: antialiased; }
+#stars { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+.nebula { position: fixed; inset: -20%; z-index: 0; pointer-events: none; filter: blur(60px); opacity: .55;
+  background:
+    radial-gradient(40% 35% at 18% 22%, rgba(157,123,255,.28), transparent 70%),
+    radial-gradient(35% 30% at 85% 15%, rgba(72,224,255,.18), transparent 70%),
+    radial-gradient(45% 40% at 70% 90%, rgba(255,95,168,.16), transparent 70%);
+  animation: drift 60s ease-in-out infinite alternate; }
+@keyframes drift { to { transform: translate3d(3%, -2%, 0) rotate(3deg); } }
+
+.wrap { position: relative; z-index: 1; max-width: 1680px; margin: 0 auto; padding: 18px 22px 40px; }
+
+/* header */
+header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.logo { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+  background: conic-gradient(from 200deg, var(--cyan), var(--violet), var(--pink), var(--cyan));
+  box-shadow: 0 0 24px rgba(157,123,255,.45); }
+.logo svg { width: 22px; height: 22px; }
+.brand h1 { margin: 0; font-size: 20px; letter-spacing: .02em; font-weight: 700; }
+.brand small { display: block; color: var(--dim); font: 500 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+.pill { display: inline-flex; align-items: center; gap: 10px; padding: 8px 16px 8px 12px; border-radius: 999px;
+  background: var(--panel-hi); border: 1px solid var(--line-hi); font-weight: 700; letter-spacing: .04em;
+  box-shadow: 0 0 30px color-mix(in srgb, var(--state) 25%, transparent); }
+.pill .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--state); box-shadow: 0 0 12px var(--state); }
+.pill.live .dot { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { transform: scale(1.5); opacity: .5; } }
+.pill .sub { color: var(--dim); font-weight: 500; }
+.hspace { flex: 1; }
+.lang { display: inline-flex; padding: 3px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); }
+.lang button { border: 0; background: transparent; color: var(--dim); font: 600 11px var(--mono); letter-spacing: .08em; padding: 5px 9px; border-radius: 7px; cursor: pointer; }
+.lang button.on { background: linear-gradient(135deg, rgba(72,224,255,.25), rgba(157,123,255,.3)); color: #fff; }
+.meta-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel); font: 500 12px var(--mono); color: var(--dim); white-space: nowrap; }
+.chip b { color: var(--text); font-weight: 600; }
+.chip.ok { color: var(--green); border-color: rgba(61,255,170,.3); }
+.bars { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; }
+.bars i { width: 3px; background: var(--faint); border-radius: 1px; }
+.bars i.on { background: var(--cyan); }
+#clock { font: 600 15px var(--mono); color: var(--text); }
+
+/* grid */
+.grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; }
+.card { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 18px;
+  backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); overflow: hidden; }
+.card::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(140deg, rgba(255,255,255,.06), transparent 35%); }
+.card h2 { margin: 0 0 14px; font: 600 11px var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
+  display: flex; align-items: center; gap: 8px; }
+.card h2::before { content: ""; width: 6px; height: 6px; border-radius: 2px; background: var(--violet); box-shadow: 0 0 8px var(--violet); }
+.span-8 { grid-column: span 8; } .span-4 { grid-column: span 4; } .span-12 { grid-column: span 12; }
+.row-2 { grid-row: span 2; }
+
+/* camera */
+.cam { padding: 0; aspect-ratio: auto; min-height: 420px; display: flex; flex-direction: column; }
+.cam .view { position: relative; flex: 1; background: #000 center/cover no-repeat; min-height: 380px; }
+.cam img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cam .placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font: 500 13px var(--mono); letter-spacing: .1em; }
+.hud { position: absolute; inset: 0; pointer-events: none; }
+.hud .corner { position: absolute; width: 34px; height: 34px; border: 2px solid rgba(72,224,255,.7); filter: drop-shadow(0 0 6px var(--cyan)); }
+.hud .tl { top: 16px; left: 16px; border-right: 0; border-bottom: 0; border-radius: 8px 0 0 0; }
+.hud .tr { top: 16px; right: 16px; border-left: 0; border-bottom: 0; border-radius: 0 8px 0 0; }
+.hud .bl { bottom: 16px; left: 16px; border-right: 0; border-top: 0; border-radius: 0 0 0 8px; }
+.hud .br { bottom: 16px; right: 16px; border-left: 0; border-top: 0; border-radius: 0 0 8px 0; }
+.hud .scan { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px); mix-blend-mode: overlay; }
+.hud .sweep { position: absolute; left: 0; right: 0; height: 120px; top: -120px;
+  background: linear-gradient(180deg, transparent, rgba(72,224,255,.07), transparent); animation: sweep 6s linear infinite; }
+@keyframes sweep { to { top: 100%; } }
+.hud .tag { position: absolute; top: 26px; left: 62px; font: 600 12px var(--mono); letter-spacing: .14em; color: #fff;
+  display: flex; align-items: center; gap: 8px; text-shadow: 0 1px 6px #000; }
+.hud .tag .rec { width: 9px; height: 9px; border-radius: 50%; background: var(--red); box-shadow: 0 0 10px var(--red); animation: pulse 1.2s infinite; }
+.hud .fps { position: absolute; top: 26px; right: 62px; font: 500 11px var(--mono); color: rgba(255,255,255,.75); text-shadow: 0 1px 6px #000; }
+.hud .bottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 60px 26px 22px;
+  background: linear-gradient(0deg, rgba(3,4,12,.88), transparent); display: flex; align-items: flex-end; gap: 24px; }
+.hud .big { font: 800 56px/0.9 var(--mono); letter-spacing: -.03em;
+  background: linear-gradient(90deg, #fff, var(--cyan)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hud .big small { font-size: 24px; }
+.hud .task { flex: 1; min-width: 0; }
+.hud .task .n { font-weight: 700; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 8px #000; }
+.hud .task .s { color: var(--cyan); font: 500 12px var(--mono); letter-spacing: .08em; margin-top: 4px; }
+.hud .bar { margin-top: 10px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
+.hud .bar i { display: block; height: 100%; width: 0; border-radius: inherit; transition: width 1s ease;
+  background: linear-gradient(90deg, var(--cyan), var(--violet), var(--pink)); box-shadow: 0 0 14px var(--violet); }
+.cam .tools { position: absolute; right: 22px; bottom: 22px; display: flex; gap: 8px; pointer-events: auto; }
+.icon-btn { width: 38px; height: 38px; border-radius: 11px; border: 1px solid var(--line-hi); background: rgba(10,12,30,.6);
+  color: var(--text); display: grid; place-items: center; cursor: pointer; backdrop-filter: blur(6px); transition: .2s; }
+.icon-btn:hover { border-color: var(--cyan); box-shadow: 0 0 14px rgba(72,224,255,.4); }
+.icon-btn svg { width: 18px; height: 18px; }
+
+/* mission */
+.mission { display: flex; flex-direction: column; gap: 14px; }
+.ring-wrap { display: flex; align-items: center; gap: 18px; }
+.ring { position: relative; width: 210px; height: 210px; flex: none; }
+.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
+.ring .track { fill: none; stroke: rgba(255,255,255,.07); stroke-width: 12; }
+.ring .ticks { fill: none; stroke: rgba(255,255,255,.14); stroke-width: 6; stroke-dasharray: 1 7.5; }
+.ring .prog { fill: none; stroke: url(#ringGrad); stroke-width: 12; stroke-linecap: round; filter: url(#glow); transition: stroke-dashoffset 1.2s cubic-bezier(.2,.8,.2,1); }
+.ring .center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+.ring .pct { font: 800 52px/1 var(--mono); letter-spacing: -.04em; }
+.ring .pct small { font-size: 22px; color: var(--dim); }
+.ring .lbl { font: 500 11px var(--mono); color: var(--dim); letter-spacing: .16em; text-transform: uppercase; margin-top: 4px; }
+.orbit { position: absolute; inset: -8px; border-radius: 50%; animation: spin 9s linear infinite; }
+.orbit::after { content: ""; position: absolute; top: -3px; left: 50%; width: 8px; height: 8px; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 10px var(--cyan), 0 0 22px var(--violet); }
+.orbit.off { display: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.alt { flex: 1; display: flex; gap: 12px; height: 210px; }
+.alt .track { position: relative; width: 26px; border-radius: 13px; background: rgba(255,255,255,.05); border: 1px solid var(--line); overflow: hidden; }
+.alt .fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; transition: height 1s ease;
+  background: linear-gradient(0deg, rgba(157,123,255,.15), rgba(72,224,255,.55)); }
+.alt .fill::after { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: #fff; box-shadow: 0 0 12px var(--cyan), 0 0 24px var(--cyan); }
+.alt .marks { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, transparent 0 9px, rgba(255,255,255,.12) 9px 10px); }
+.alt .info { display: flex; flex-direction: column; justify-content: space-between; padding: 2px 0; }
+.stat .k { font: 500 10px var(--mono); color: var(--dim); letter-spacing: .16em; text-transform: uppercase; }
+.stat .v { font: 700 24px/1.15 var(--mono); letter-spacing: -.02em; }
+.stat .v small { font-size: 13px; color: var(--dim); font-weight: 500; }
+.times { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.times .stat { background: rgba(255,255,255,.035); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+.times .stat .v { font-size: 26px; }
+.times .eta .v { color: var(--cyan); text-shadow: 0 0 18px rgba(72,224,255,.5); }
+
+/* model */
+.model { display: flex; gap: 16px; align-items: stretch; }
+.thumb { width: 150px; height: 150px; flex: none; border-radius: 16px; position: relative; overflow: hidden;
+  background: radial-gradient(circle at 50% 60%, rgba(157,123,255,.25), transparent 70%), rgba(255,255,255,.03); border: 1px solid var(--line); }
+.thumb img { width: 100%; height: 100%; object-fit: contain; animation: float 6s ease-in-out infinite; filter: drop-shadow(0 10px 18px rgba(0,0,0,.6)); }
+@keyframes float { 50% { transform: translateY(-6px) rotate(-1deg); } }
+.thumb .none { position: absolute; inset: 0; display: grid; place-items: center; color: var(--faint); font: 500 11px var(--mono); }
+.model .details { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.model .title { font-weight: 700; font-size: 16px; overflow-wrap: anywhere; }
+.fil-list { display: flex; flex-direction: column; gap: 7px; }
+.fil { display: flex; align-items: center; gap: 9px; font: 500 12px var(--mono); }
+.fil .sw { width: 14px; height: 14px; border-radius: 4px; flex: none; box-shadow: 0 0 10px currentColor; border: 1px solid rgba(255,255,255,.25); }
+.fil .g { margin-left: auto; color: var(--text); font-weight: 600; }
+.fil .t { color: var(--dim); }
+.kv { display: flex; gap: 14px; flex-wrap: wrap; }
+
+/* temps */
+.temps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.gauge { background: rgba(255,255,255,.03); border: 1px solid var(--line); border-radius: 16px; padding: 14px 14px 10px; position: relative; }
+.gauge .head { display: flex; justify-content: space-between; align-items: center; font: 600 11px var(--mono); letter-spacing: .14em; color: var(--dim); text-transform: uppercase; }
+.gauge .dial { position: relative; height: 130px; margin-top: 4px; }
+.gauge .dial svg { width: 100%; height: 100%; overflow: visible; }
+.gauge .arc-bg { fill: none; stroke: rgba(255,255,255,.07); stroke-width: 10; stroke-linecap: round; }
+.gauge .arc { fill: none; stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 1s ease, stroke 1s; }
+.gauge .tgt { stroke: #fff; stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 4px #fff); transition: transform 1s ease; }
+.gauge .read { position: absolute; left: 0; right: 0; top: 52px; text-align: center; }
+.gauge .read .c { font: 800 34px/1 var(--mono); letter-spacing: -.03em; }
+.gauge .read .c small { font-size: 16px; color: var(--dim); }
+.gauge .read .t { font: 500 11px var(--mono); color: var(--dim); margin-top: 4px; }
+.spark { width: 100%; height: 38px; display: block; margin-top: 2px; }
+.badge { padding: 2px 7px; border-radius: 6px; font: 600 10px var(--mono); letter-spacing: .06em; }
+.badge.heat { background: rgba(255,95,40,.18); color: #ff9a5c; animation: pulse-bg 1.4s infinite; }
+.badge.hold { background: rgba(61,255,170,.12); color: var(--green); }
+.badge.idle { background: rgba(255,255,255,.06); color: var(--dim); }
+@keyframes pulse-bg { 50% { background: rgba(255,95,40,.32); } }
+
+/* controls */
+.controls { display: flex; flex-direction: column; gap: 14px; }
+.seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: rgba(255,255,255,.04); padding: 4px; border-radius: 12px; border: 1px solid var(--line); }
+.seg button { border: 0; background: transparent; color: var(--dim); font: 600 12px var(--sans); padding: 9px 4px; border-radius: 9px; cursor: pointer; transition: .2s; }
+.seg button.on { background: linear-gradient(135deg, rgba(72,224,255,.25), rgba(157,123,255,.3)); color: #fff; box-shadow: 0 0 16px rgba(157,123,255,.35), inset 0 0 0 1px rgba(255,255,255,.15); }
+.btns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.btn { position: relative; overflow: hidden; border-radius: 13px; border: 1px solid var(--line-hi); background: rgba(255,255,255,.04);
+  color: var(--text); font: 700 13px var(--sans); padding: 13px 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 7px; transition: .2s; user-select: none; -webkit-user-select: none; touch-action: none; }
+.btn svg { width: 16px; height: 16px; }
+.btn:hover:not(:disabled) { border-color: var(--cyan); box-shadow: 0 0 18px rgba(72,224,255,.3); }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.btn.light.on { background: rgba(255,181,71,.16); border-color: rgba(255,181,71,.6); color: var(--amber); box-shadow: 0 0 20px rgba(255,181,71,.3); }
+.btn.stop { border-color: rgba(255,77,106,.5); color: #ff8da0; }
+.btn.stop .hold { position: absolute; inset: 0; width: 0; background: linear-gradient(90deg, rgba(255,77,106,.25), rgba(255,77,106,.6)); }
+.btn.stop span, .btn.stop svg { position: relative; }
+.hint { font: 500 10px var(--mono); color: var(--faint); text-align: center; margin-top: -6px; }
+.fans { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.fan { display: flex; align-items: center; gap: 10px; font: 500 11px var(--mono); color: var(--dim); }
+.fan svg { width: 22px; height: 22px; flex: none; color: var(--cyan); }
+.fan .spin { animation: spin var(--fs, 0s) linear infinite; }
+.fan .v { margin-left: auto; color: var(--text); font-weight: 600; }
+.ai { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ams */
+.ams-units { display: flex; gap: 16px; flex-wrap: wrap; }
+.unit { flex: 1 1 340px; background: rgba(255,255,255,.03); border: 1px solid var(--line); border-radius: 16px; padding: 14px; }
+.unit.ht { flex: 0 1 180px; }
+.unit .uh { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font: 600 12px var(--mono); }
+.unit .uh .env { margin-left: auto; display: flex; gap: 10px; color: var(--dim); font-weight: 500; }
+.unit .uh .env b { color: var(--text); }
+.spools { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 10px; }
+.unit:not(.ht) .spools { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.spool { text-align: center; position: relative; }
+.spool svg { width: 100%; max-width: 92px; aspect-ratio: 1; overflow: visible; }
+.spool.active svg { animation: spin 7s linear infinite; }
+.spool.active::after { content: attr(data-badge); position: absolute; top: -4px; left: 50%; transform: translateX(-50%); font: 700 8px var(--mono); letter-spacing: .14em;
+  color: #000; background: var(--green); padding: 2px 5px; border-radius: 4px; box-shadow: 0 0 10px var(--green); }
+.spool .ty { font: 700 12px var(--mono); margin-top: 6px; }
+.spool .br { font: 500 10px var(--sans); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spool .rm { font: 600 11px var(--mono); margin-top: 2px; }
+.spool.empty { opacity: .35; }
+.hum { display: inline-flex; align-items: center; gap: 4px; }
+.hum i { display: inline-block; width: 30px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.1); overflow: hidden; position: relative; }
+.hum i::after { content: ""; position: absolute; inset: 0; width: var(--h, 0%); background: var(--hc, var(--cyan)); }
+
+/* log */
+.log { display: flex; flex-direction: column; }
+.events { list-style: none; margin: 0; padding: 0 0 0 14px; position: relative; max-height: 330px; overflow: auto; scrollbar-width: thin; }
+.events::before { content: ""; position: absolute; left: 3px; top: 6px; bottom: 6px; width: 1px; background: linear-gradient(var(--violet), transparent); }
+.events li { position: relative; padding: 0 0 12px 12px; font-size: 13px; }
+.events li::before { content: ""; position: absolute; left: -15px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--violet)); box-shadow: 0 0 8px var(--c, var(--violet)); }
+.events time { display: block; font: 500 10px var(--mono); color: var(--dim); letter-spacing: .08em; }
+.events .error { --c: var(--red); }
+.events .ack, .events .link { --c: var(--green); }
+.events .job { --c: var(--cyan); }
+.events .cmd { --c: var(--amber); }
+.alert { display: none; margin-bottom: 16px; padding: 14px 18px; border-radius: 16px; border: 1px solid rgba(255,77,106,.6);
+  background: rgba(255,77,106,.12); color: #ffb3c0; font-weight: 600; box-shadow: 0 0 30px rgba(255,77,106,.25); }
+.alert.show { display: flex; gap: 12px; align-items: center; animation: alertp 2s infinite; }
+@keyframes alertp { 50% { box-shadow: 0 0 50px rgba(255,77,106,.45); } }
+.alert a { color: #fff; }
+
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 120px); z-index: 20; padding: 12px 18px; border-radius: 14px;
+  background: var(--panel-hi); border: 1px solid var(--line-hi); backdrop-filter: blur(12px); font-weight: 600; visibility: hidden; transition: transform .35s cubic-bezier(.2,.9,.3,1.3), visibility 0s .35s; }
+.toast.show { transform: translate(-50%, 0); visibility: visible; transition-delay: 0s; }
+#fx { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
+
+.offline .card:not(.log) { filter: saturate(.3) brightness(.75); }
+
+@media (max-width: 1200px) {
+  .span-8, .span-4 { grid-column: span 12; }
+  .row-2 { grid-row: auto; }
+}
+@media (max-width: 640px) {
+  .wrap { padding: 12px 16px 32px; }
+  .grid { gap: 12px; }
+  .card { padding: 14px; border-radius: 16px; }
+  .cam .view { min-height: 240px; aspect-ratio: 16/10; }
+  .cam { min-height: 0; }
+  .hud .big { font-size: 38px; }
+  .hud .bottom { padding: 40px 16px 14px; gap: 14px; }
+  .hud .corner { width: 22px; height: 22px; }
+  .hud .tag { left: 44px; top: 22px; }
+  .hud .fps { display: none; }
+  .ring { width: 170px; height: 170px; }
+  .ring .pct { font-size: 42px; }
+  .alt { height: 170px; }
+  .temps { grid-template-columns: 1fr; }
+  .model { flex-direction: column; }
+  .thumb { width: 100%; height: 180px; }
+  .meta-row .chip.opt { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<canvas id="stars"></canvas>
+<div class="nebula"></div>
+<canvas id="fx"></canvas>
+
+<div class="wrap" id="app">
+  <header>
+    <div class="brand">
+      <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#04050d" stroke-width="2.4" stroke-linecap="round"><path d="M4 20h16M7 20V9l5-5 5 5v11M10 14h4"/></svg></div>
+      <div><h1 id="pname">H2S</h1><small>Mission Control</small></div>
+    </div>
+    <div class="pill" id="pill"><span class="dot"></span><span id="pstate" data-i18n="connecting">Подключение…</span><span class="sub" id="pstage"></span></div>
+    <div class="hspace"></div>
+    <div class="meta-row">
+      <div class="lang" id="lang" role="group" aria-label="Language"><button data-lang="ru">RU</button><button data-lang="en">EN</button></div>
+      <span class="chip opt" id="ai-chip" data-i18n-title="aiTitle">AI</span>
+      <span class="chip opt" id="nozzle-chip">сопло —</span>
+      <span class="chip" title="Wi-Fi"><span class="bars" id="wifi"><i style="height:4px"></i><i style="height:7px"></i><i style="height:10px"></i><i style="height:12px"></i></span><b id="wifi-v">—</b></span>
+      <span id="clock">--:--</span>
+    </div>
+  </header>
+
+  <div class="alert" id="alert"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 21h20L12 3zM12 10v5M12 18h.01"/></svg><div id="alert-t"></div></div>
+
+  <main class="grid">
+    <section class="card cam span-8 row-2">
+      <div class="view" id="view">
+        <div class="placeholder" id="cam-ph" data-i18n="camConnecting">ПОДКЛЮЧЕНИЕ К КАМЕРЕ…</div>
+        <img id="cam" alt="" data-i18n-alt="camAlt">
+        <div class="hud">
+          <div class="scan"></div><div class="sweep"></div>
+          <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+          <div class="tag"><span class="rec"></span>LIVE · CAM-01</div>
+          <div class="fps" id="cam-res">— · 15 FPS</div>
+          <div class="bottom">
+            <div class="big" id="hud-pct">0<small>%</small></div>
+            <div class="task">
+              <div class="n" id="hud-task">—</div>
+              <div class="s" id="hud-stage">—</div>
+              <div class="bar"><i id="hud-bar"></i></div>
+            </div>
+          </div>
+          <div class="tools">
+            <button class="icon-btn" id="snap" data-i18n-title="snapshot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+            <button class="icon-btn" id="fs" data-i18n-title="fullscreen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card mission span-4">
+      <h2 data-i18n="hMission">Миссия</h2>
+      <div class="ring-wrap">
+        <div class="ring">
+          <div class="orbit off" id="orbit"></div>
+          <svg viewBox="0 0 200 200">
+            <defs>
+              <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#48e0ff"/><stop offset=".55" stop-color="#9d7bff"/><stop offset="1" stop-color="#ff5fa8"/>
+              </linearGradient>
+              <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            </defs>
+            <circle class="ticks" cx="100" cy="100" r="96"/>
+            <circle class="track" cx="100" cy="100" r="82"/>
+            <circle class="prog" id="ring" cx="100" cy="100" r="82"/>
+          </svg>
+          <div class="center"><div><div class="pct" id="pct">0<small>%</small></div><div class="lbl" id="ring-lbl">прогресс</div></div></div>
+        </div>
+        <div class="alt">
+          <div class="track"><div class="marks"></div><div class="fill" id="alt-fill"></div></div>
+          <div class="info">
+            <div class="stat"><div class="k" data-i18n="layer">Слой</div><div class="v" id="layer">—</div></div>
+            <div class="stat"><div class="k" data-i18n="speed">Скорость</div><div class="v" id="spd-v">—</div></div>
+            <div class="stat"><div class="k" data-i18n="elapsed">В полёте</div><div class="v" id="elapsed">—</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="times">
+        <div class="stat"><div class="k" data-i18n="remaining">Осталось</div><div class="v" id="remain">—</div></div>
+        <div class="stat eta"><div class="k" data-i18n="eta">Посадка в</div><div class="v" id="eta">—</div></div>
+      </div>
+    </section>
+
+    <section class="card span-4">
+      <h2 data-i18n="hPayload">Груз</h2>
+      <div class="model">
+        <div class="thumb"><img id="thumb" alt="" hidden><div class="none" id="thumb-none" data-i18n="noPreview">НЕТ ПРЕВЬЮ</div></div>
+        <div class="details">
+          <div class="title" id="task">—</div>
+          <div class="kv">
+            <div class="stat"><div class="k" data-i18n="mass">Масса</div><div class="v" id="weight">—</div></div>
+            <div class="stat"><div class="k" data-i18n="slicer">По слайсеру</div><div class="v" id="pred">—</div></div>
+          </div>
+          <div class="fil-list" id="fils"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card span-8">
+      <h2 data-i18n="hThermo">Термодинамика</h2>
+      <div class="temps" id="temps"></div>
+    </section>
+
+    <section class="card controls span-4">
+      <h2 data-i18n="hConsole">Пульт</h2>
+      <div class="seg" id="speeds">
+        <button data-l="1" data-i18n="spd1">Тихий</button><button data-l="2" data-i18n="spd2">Стандарт</button><button data-l="3" data-i18n="spd3">Спорт</button><button data-l="4" data-i18n="spd4">Безумный</button>
+      </div>
+      <div class="btns">
+        <button class="btn light" id="b-light"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9V16h7v-2.1A6 6 0 0 0 12 3z"/></svg><span data-i18n="light">Свет</span></button>
+        <button class="btn" id="b-pause"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><span>Пауза</span></button>
+        <button class="btn stop" id="b-stop"><i class="hold"></i><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg><span data-i18n="stop">Стоп</span></button>
+      </div>
+      <div class="hint" data-i18n="stopHint">«Стоп» — удерживать 2 секунды</div>
+      <div class="fans" id="fans"></div>
+      <div class="ai" id="ai"></div>
+    </section>
+
+    <section class="card span-8">
+      <h2 data-i18n="hAms">Топливные баки · AMS</h2>
+      <div class="ams-units" id="ams"></div>
+    </section>
+
+    <section class="card log span-4">
+      <h2 data-i18n="hLog">Бортжурнал</h2>
+      <ul class="events" id="events"></ul>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const STATE_COLORS = { RUNNING: "#48e0ff", PREPARE: "#9d7bff", SLICING: "#9d7bff", PAUSE: "#ffb547", FINISH: "#3dffaa", FAILED: "#ff4d6a", IDLE: "#8890b5", OFFLINE: "#ff4d6a" };
+const LIVE = new Set(["RUNNING", "PREPARE", "SLICING"]);
+let S = null, prevState = null;
+
+const I18N = {
+  ru: {
+    connecting: "Подключение…", aiTitle: "ИИ-контроль печати", camConnecting: "ПОДКЛЮЧЕНИЕ К КАМЕРЕ…", camAlt: "Камера принтера",
+    camRetry: "КАМЕРА НЕДОСТУПНА · ПОВТОР…", snapshot: "Снимок", fullscreen: "На весь экран",
+    hMission: "Миссия", hPayload: "Груз", hThermo: "Термодинамика", hConsole: "Пульт", hAms: "Топливные баки · AMS", hLog: "Бортжурнал",
+    layer: "Слой", speed: "Скорость", elapsed: "В полёте", remaining: "Осталось", eta: "Посадка в", mass: "Масса", slicer: "По слайсеру",
+    noPreview: "НЕТ ПРЕВЬЮ", spd1: "Тихий", spd2: "Стандарт", spd3: "Спорт", spd4: "Безумный",
+    light: "Свет", pause: "Пауза", resume: "Пуск", stop: "Стоп", stopHint: "«Стоп» — удерживать 2 секунды",
+    h: "ч", m: "м", g: "г", meters: "м", target: "цель", off: "выкл", holding: "держит", heating: "нагрев", cooling: "остывает",
+    nozzle: "Сопло", bed: "Стол", chamber: "Камера", nozzleChip: "сопло",
+    fanPart: "Обдув", fanAux: "Боковой", fanChamber: "Камера", fanHeatbreak: "Хотэнд",
+    spaghetti: "Спагетти-детектор", firstLayer: "Первый слой", autostop: "автостоп",
+    aiOn: "AI-страж активен", aiOff: "AI-страж выкл",
+    humidity: "Влажность", drying: "сушка", empty: "пусто", printing: "ПЕЧАТАЕТ", extSpool: "Внешняя катушка", noAms: "AMS не подключена",
+    quiet: "Пока тихо", ringProgress: "прогресс", ringLanded: "приземлились", ringDock: "на стапеле",
+    noJob: "Нет активного задания", layerCaps: "СЛОЙ", printError: "Ошибка печати", offline: "Нет связи с принтером",
+    serverDown: "Сервер недоступен", cmdSent: "Команда отправлена", cmdFail: "Ошибка отправки",
+  },
+  en: {
+    connecting: "Connecting…", aiTitle: "AI print monitoring", camConnecting: "CONNECTING TO CAMERA…", camAlt: "Printer camera",
+    camRetry: "CAMERA UNAVAILABLE · RETRYING…", snapshot: "Snapshot", fullscreen: "Fullscreen",
+    hMission: "Mission", hPayload: "Payload", hThermo: "Thermodynamics", hConsole: "Console", hAms: "Fuel tanks · AMS", hLog: "Flight log",
+    layer: "Layer", speed: "Speed", elapsed: "In flight", remaining: "Remaining", eta: "Landing at", mass: "Mass", slicer: "Slicer est.",
+    noPreview: "NO PREVIEW", spd1: "Silent", spd2: "Standard", spd3: "Sport", spd4: "Ludicrous",
+    light: "Light", pause: "Pause", resume: "Resume", stop: "Stop", stopHint: "Hold “Stop” for 2 seconds",
+    h: "h", m: "m", g: "g", meters: "m", target: "target", off: "off", holding: "holding", heating: "heating", cooling: "cooling",
+    nozzle: "Nozzle", bed: "Bed", chamber: "Chamber", nozzleChip: "nozzle",
+    fanPart: "Part", fanAux: "Aux", fanChamber: "Chamber", fanHeatbreak: "Hotend",
+    spaghetti: "Spaghetti detector", firstLayer: "First layer", autostop: "auto-stop",
+    aiOn: "AI guard active", aiOff: "AI guard off",
+    humidity: "Humidity", drying: "drying", empty: "empty", printing: "PRINTING", extSpool: "External spool", noAms: "No AMS connected",
+    quiet: "All quiet", ringProgress: "progress", ringLanded: "landed", ringDock: "docked",
+    noJob: "No active job", layerCaps: "LAYER", printError: "Print error", offline: "Printer offline",
+    serverDown: "Server unreachable", cmdSent: "Command sent", cmdFail: "Send failed",
+  },
+};
+let lang = "ru";
+try { lang = localStorage.getItem("lang") === "en" ? "en" : "ru"; } catch {}
+const t = (k) => (I18N[lang] && I18N[lang][k]) ?? I18N.ru[k] ?? k;
+const tx = (o) => (o && typeof o === "object" ? o[lang] ?? o.ru : o ?? "");
+const loc = () => (lang === "ru" ? "ru-RU" : "en-GB");
+function applyStatic() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-i18n]").forEach((e) => { e.textContent = t(e.dataset.i18n); });
+  document.querySelectorAll("[data-i18n-title]").forEach((e) => { e.title = t(e.dataset.i18nTitle); });
+  document.querySelectorAll("[data-i18n-alt]").forEach((e) => { e.alt = t(e.dataset.i18nAlt); });
+  document.querySelectorAll("#lang button").forEach((b) => b.classList.toggle("on", b.dataset.lang === lang));
+}
+
+/* ---------- starfield ---------- */
+(() => {
+  const c = $("stars"), x = c.getContext("2d");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let stars = [], w, h, dpr;
+  function size() {
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    w = c.width = innerWidth * dpr; h = c.height = innerHeight * dpr;
+    const n = Math.round((innerWidth * innerHeight) / 2600);
+    stars = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, z: Math.random() ** 2, p: Math.random() * 6.28 }));
+  }
+  function draw(t) {
+    x.clearRect(0, 0, w, h);
+    for (const s of stars) {
+      const sp = (0.04 + s.z * 0.35) * dpr;
+      if (!reduce) { s.x -= sp; if (s.x < 0) { s.x = w; s.y = Math.random() * h; } }
+      const a = 0.25 + s.z * 0.75 * (0.65 + 0.35 * Math.sin(t / 700 + s.p));
+      const r = (0.4 + s.z * 1.4) * dpr;
+      x.fillStyle = s.z > 0.85 ? `rgba(200,220,255,${a})` : `rgba(255,255,255,${a})`;
+      x.beginPath(); x.arc(s.x, s.y, r, 0, 6.283); x.fill();
+    }
+    if (!reduce) requestAnimationFrame(draw);
+  }
+  addEventListener("resize", size); size(); requestAnimationFrame(draw);
+})();
+
+/* ---------- confetti / fireworks on finish ---------- */
+function fireworks() {
+  const c = $("fx"), x = c.getContext("2d");
+  c.width = innerWidth; c.height = innerHeight;
+  const cols = ["#48e0ff", "#9d7bff", "#ff5fa8", "#3dffaa", "#ffb547", "#fff"];
+  let parts = [];
+  for (let b = 0; b < 6; b++) {
+    const cx = innerWidth * (0.15 + Math.random() * 0.7), cy = innerHeight * (0.15 + Math.random() * 0.4), col = cols[b % cols.length];
+    for (let i = 0; i < 90; i++) {
+      const a = Math.random() * 6.283, v = 2 + Math.random() * 6;
+      parts.push({ x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, col, delay: b * 18 });
+    }
+  }
+  (function step() {
+    x.clearRect(0, 0, c.width, c.height);
+    parts = parts.filter((p) => p.life > 0);
+    for (const p of parts) {
+      if (p.delay > 0) { p.delay--; continue; }
+      p.x += p.vx; p.y += p.vy; p.vy += 0.07; p.vx *= 0.985; p.life -= 0.012;
+      x.globalAlpha = Math.max(p.life, 0); x.fillStyle = p.col;
+      x.beginPath(); x.arc(p.x, p.y, 2.2, 0, 6.283); x.fill();
+    }
+    if (parts.length) requestAnimationFrame(step); else x.clearRect(0, 0, c.width, c.height);
+  })();
+}
+
+/* ---------- helpers ---------- */
+const fmtDur = (min) => {
+  if (min == null || isNaN(min)) return "—";
+  min = Math.max(0, Math.round(min));
+  const h = Math.floor(min / 60), m = min % 60;
+  return h ? `${h}<small>${t("h")}</small> ${String(m).padStart(2, "0")}<small>${t("m")}</small>` : `${m}<small>${t("m")}</small>`;
+};
+const fmtClock = (ts) => ts ? new Date(ts * 1000).toLocaleTimeString(loc(), { hour: "2-digit", minute: "2-digit" }) : "—";
+const n0 = (v) => (v == null || isNaN(v) ? "—" : Math.round(v));
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2600); }
+async function cmd(action, extra = {}) {
+  try {
+    const r = await fetch("/api/cmd", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...extra }) });
+    toast(r.ok ? t("cmdSent") : t("cmdFail"));
+  } catch { toast(t("serverDown")); }
+}
+
+/* ---------- temperature gauges ---------- */
+const GAUGES = [
+  { key: "nozzle", max: 320 },
+  { key: "bed", max: 120 },
+  { key: "chamber", max: 65 },
+];
+const ARC_R = 58, ARC_LEN = Math.PI * 2 * ARC_R * 0.75;
+function arcPath() {
+  // 270° arc, opening at the bottom, centred at (80,72)
+  const cx = 80, cy = 72, r = ARC_R;
+  const a0 = (135 * Math.PI) / 180, a1 = (405 * Math.PI) / 180;
+  return `M ${cx + r * Math.cos(a0)} ${cy + r * Math.sin(a0)} A ${r} ${r} 0 1 1 ${cx + r * Math.cos(a1)} ${cy + r * Math.sin(a1)}`;
+}
+function heatColor(f) {
+  // cold cyan -> violet -> pink -> amber
+  const stops = [[72, 224, 255], [157, 123, 255], [255, 95, 168], [255, 181, 71]];
+  f = Math.min(Math.max(f, 0), 1) * (stops.length - 1);
+  const i = Math.min(Math.floor(f), stops.length - 2), t = f - i;
+  const c = stops[i].map((v, k) => Math.round(v + (stops[i + 1][k] - v) * t));
+  return `rgb(${c.join(",")})`;
+}
+function buildGauges() {
+  $("temps").innerHTML = GAUGES.map((g) => `
+    <div class="gauge" id="g-${g.key}">
+      <div class="head"><span data-i18n="${g.key}">${t(g.key)}</span><span class="badge idle" id="g-${g.key}-b">—</span></div>
+      <div class="dial">
+        <svg viewBox="0 0 160 130">
+          <path class="arc-bg" d="${arcPath()}"/>
+          <path class="arc" id="g-${g.key}-a" d="${arcPath()}" stroke-dasharray="${ARC_LEN} ${ARC_LEN}" stroke-dashoffset="${ARC_LEN}"/>
+          <line class="tgt" id="g-${g.key}-t" x1="80" y1="6" x2="80" y2="22" style="transform-origin:80px 72px;opacity:0"/>
+        </svg>
+        <div class="read"><div class="c" id="g-${g.key}-c">—</div><div class="t" id="g-${g.key}-tt">${t("target")} —</div></div>
+      </div>
+      <svg class="spark" id="g-${g.key}-s" viewBox="0 0 200 38" preserveAspectRatio="none"></svg>
+    </div>`).join("");
+}
+function sparkline(svg, vals, color) {
+  const v = vals.filter((x) => x != null);
+  if (v.length < 2) { svg.innerHTML = ""; return; }
+  const lo = Math.min(...v) - 1, hi = Math.max(...v) + 1, n = vals.length;
+  let d = "", started = false;
+  vals.forEach((y, i) => {
+    if (y == null) { started = false; return; }
+    const px = (i / (n - 1)) * 200, py = 36 - ((y - lo) / (hi - lo)) * 32;
+    d += `${started ? "L" : "M"}${px.toFixed(1)} ${py.toFixed(1)} `; started = true;
+  });
+  const id = svg.id + "-grad";
+  svg.innerHTML = `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".35"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+    <path d="${d} L200 38 L0 38 Z" fill="url(#${id})" stroke="none"/>
+    <path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke"/>`;
+}
+function renderTemps(s) {
+  GAUGES.forEach((g, gi) => {
+    const tm = s.temps[g.key] || {}, cur = tm.cur, tgt = tm.tgt;
+    const f = cur == null ? 0 : Math.min(cur / g.max, 1);
+    const col = heatColor(f);
+    const a = $(`g-${g.key}-a`);
+    a.style.strokeDashoffset = ARC_LEN * (1 - f); a.style.stroke = col; a.style.filter = `drop-shadow(0 0 6px ${col})`;
+    $(`g-${g.key}-c`).innerHTML = cur == null ? "—" : `${n0(cur)}<small>°</small>`;
+    $(`g-${g.key}-tt`).textContent = `${t("target")} ${tgt ? n0(tgt) + "°" : "—"}`;
+    const tl = $(`g-${g.key}-t`);
+    if (tgt) { tl.style.opacity = 1; tl.style.transform = `rotate(${-135 + Math.min(tgt / g.max, 1) * 270}deg)`; } else tl.style.opacity = 0;
+    const b = $(`g-${g.key}-b`);
+    if (!tgt) { b.className = "badge idle"; b.textContent = t("off"); }
+    else if (cur != null && Math.abs(cur - tgt) <= 3) { b.className = "badge hold"; b.textContent = t("holding"); }
+    else { b.className = "badge heat"; b.textContent = cur < tgt ? t("heating") : t("cooling"); }
+    sparkline($(`g-${g.key}-s`), (s.hist || []).map((h) => h[1 + gi]), col);
+  });
+}
+
+/* ---------- AMS ---------- */
+function spoolSVG(t) {
+  const r = t.empty ? 0 : 14 + (t.remain < 0 ? 0.75 : t.remain / 100) * 22;
+  const col = t.empty ? "#222" : t.color;
+  return `<svg viewBox="0 0 100 100">
+    ${t.active ? `<circle cx="50" cy="50" r="47" fill="none" stroke="${col}" stroke-width="2" opacity=".9" style="filter:drop-shadow(0 0 8px ${col})"/>` : ""}
+    <circle cx="50" cy="50" r="44" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.18)" stroke-width="1.5"/>
+    ${r ? `<circle cx="50" cy="50" r="${r.toFixed(1)}" fill="${col}"/>
+    <circle cx="50" cy="50" r="${r.toFixed(1)}" fill="url(#spoolShade)"/>` : ""}
+    <circle cx="50" cy="50" r="12" fill="#0b0e22" stroke="rgba(255,255,255,.3)"/>
+    <circle cx="50" cy="50" r="4" fill="rgba(255,255,255,.35)"/>
+    <line x1="50" y1="8" x2="50" y2="20" stroke="rgba(255,255,255,.35)" stroke-width="2"/>
+  </svg>`;
+}
+function humColor(h) { return h == null ? "var(--dim)" : h < 25 ? "var(--green)" : h < 45 ? "var(--amber)" : "var(--red)"; }
+function renderAMS(s) {
+  const units = s.ams || [];
+  let html = `<svg width="0" height="0" style="position:absolute"><defs><radialGradient id="spoolShade" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#fff" stop-opacity=".35"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".4"/></radialGradient></defs></svg>`;
+  html += units.map((u) => `
+    <div class="unit ${u.id >= 128 ? "ht" : ""}">
+      <div class="uh"><span>${esc(u.name)}</span>
+        <span class="env">
+          <span class="hum" title="${t("humidity")}">💧 <b>${n0(u.humidity)}%</b><i style="--h:${Math.min(u.humidity || 0, 100)}%;--hc:${humColor(u.humidity)}"></i></span>
+          <span>🌡 <b>${u.temp == null ? "—" : u.temp.toFixed(0)}°</b></span>
+          ${u.dry_min ? `<span style="color:var(--amber)">${t("drying")} ${u.dry_min}${t("m")}</span>` : ""}
+        </span></div>
+      <div class="spools">${u.trays.map((tr) => `
+        <div class="spool ${tr.active ? "active" : ""} ${tr.empty ? "empty" : ""}" data-badge="${t("printing")}" title="${esc(tr.brand || tr.type)}">
+          ${spoolSVG(tr)}
+          <div class="ty" style="color:${tr.empty ? "var(--faint)" : "var(--text)"}">${tr.empty ? t("empty") : esc(tr.type)}</div>
+          <div class="br">${esc(tr.brand.replace(tr.type, "").trim() || (tr.empty ? "" : "—"))}</div>
+          <div class="rm" style="color:${tr.remain >= 0 && tr.remain < 15 ? "var(--red)" : "var(--dim)"}">${tr.empty ? "&nbsp;" : tr.remain < 0 ? "?" : tr.remain + "%"}</div>
+        </div>`).join("")}
+      </div>
+    </div>`).join("");
+  if (s.ext) html += `<div class="unit ht"><div class="uh"><span>${t("extSpool")}</span></div><div class="spools"><div class="spool ${s.ext.active ? "active" : ""}" data-badge="${t("printing")}">${spoolSVG({ ...s.ext, remain: -1 })}<div class="ty">${esc(s.ext.type)}</div><div class="br">${esc(s.ext.brand)}</div></div></div></div>`;
+  if (!units.length && !s.ext) html += `<div style="color:var(--dim)">${t("noAms")}</div>`;
+  const el = $("ams"), key = JSON.stringify([lang, units, s.ext]);
+  if (el.dataset.k !== key) { el.innerHTML = html; el.dataset.k = key; }
+}
+
+/* ---------- fans, AI, events ---------- */
+const FAN_SVG = `<svg viewBox="0 0 24 24" fill="currentColor"><g class="spin" style="transform-origin:12px 12px"><path d="M12 11c-1-4 0-8 3-8 2 0 2.5 3-.5 5.5L12 11zM13 12c4-1 8 0 8 3 0 2-3 2.5-5.5-.5L13 12zM12 13c1 4 0 8-3 8-2 0-2.5-3 .5-5.5L12 13zM11 12c-4 1-8 0-8-3 0-2 3-2.5 5.5.5L11 12z"/></g><circle cx="12" cy="12" r="1.6"/></svg>`;
+const FANS = [["part", "fanPart"], ["aux", "fanAux"], ["chamber", "fanChamber"], ["heatbreak", "fanHeatbreak"]];
+function renderFans(s) {
+  $("fans").innerHTML = FANS.map(([k, n]) => {
+    const v = s.fans[k], dur = v ? (2.2 - (v / 100) * 1.9).toFixed(2) + "s" : "0s";
+    return `<div class="fan" style="--fs:${dur}">${FAN_SVG}<span>${t(n)}</span><span class="v">${v == null ? "—" : v + "%"}</span></div>`;
+  }).join("");
+}
+function renderAI(s) {
+  const a = s.ai || {}, on = (b) => (b ? "ok" : "");
+  $("ai").innerHTML = `
+    <span class="chip ${on(a.spaghetti)}">◉ ${t("spaghetti")}</span>
+    <span class="chip ${on(a.first_layer)}">◉ ${t("firstLayer")}</span>
+    ${a.halt ? `<span class="chip ok">⏸ ${t("autostop")} · ${esc(a.sensitivity || "")}</span>` : ""}`;
+  const chip = $("ai-chip"), active = a.spaghetti || a.first_layer;
+  chip.className = "chip opt" + (active ? " ok" : ""); chip.textContent = active ? "◉ " + t("aiOn") : t("aiOff");
+}
+function renderEvents(s) {
+  const el = $("events"), key = lang + (s.events || []).map((e) => e.t).join();
+  if (el.dataset.k === key) return; el.dataset.k = key;
+  el.innerHTML = (s.events || []).map((e) => `<li class="${esc(e.kind)}"><time>${new Date(e.t * 1000).toLocaleTimeString(loc())}</time>${esc(tx(e.text))}</li>`).join("") || `<li><time>—</time>${t("quiet")}</li>`;
+}
+
+/* ---------- main render ---------- */
+const RING_C = 2 * Math.PI * 82;
+$("ring").style.strokeDasharray = RING_C;
+$("ring").style.strokeDashoffset = RING_C;
+let thumbV = null;
+function render(s) {
+  S = s;
+  const color = STATE_COLORS[s.state] || "#48e0ff", live = LIVE.has(s.state), active = live || s.state === "PAUSE";
+  document.documentElement.style.setProperty("--state", color);
+  $("app").classList.toggle("offline", s.state === "OFFLINE");
+  $("pname").textContent = s.name;
+  $("pill").classList.toggle("live", live);
+  const stateTxt = tx(s.state_txt), stageTxt = tx(s.stage);
+  $("pstate").textContent = stateTxt;
+  $("pstage").textContent = stageTxt && stageTxt !== stateTxt ? "· " + stageTxt : "";
+  document.title = active ? `${s.pct}% · ${s.name} · ${stateTxt}` : `${s.name} · ${stateTxt}`;
+
+  // wifi
+  const w = s.wifi, bars = w == null ? 0 : w > -55 ? 4 : w > -65 ? 3 : w > -75 ? 2 : w > -85 ? 1 : 0;
+  [...$("wifi").children].forEach((b, i) => b.classList.toggle("on", i < bars));
+  $("wifi-v").textContent = w == null ? "—" : `${w} dBm`;
+  $("wifi-v").style.color = bars <= 1 ? "var(--amber)" : "";
+  $("nozzle-chip").innerHTML = `${t("nozzleChip")} <b>${esc(s.nozzle.diameter || "—")}</b> ${esc(s.nozzle.type || "")}`;
+
+  // progress
+  const pct = active || s.state === "FINISH" ? s.pct : 0;
+  $("ring").style.strokeDashoffset = RING_C * (1 - pct / 100);
+  $("pct").innerHTML = `${pct}<small>%</small>`;
+  $("ring-lbl").textContent = s.state === "FINISH" ? t("ringLanded") : active ? t("ringProgress") : t("ringDock");
+  $("orbit").classList.toggle("off", !live);
+  $("hud-pct").innerHTML = `${pct}<small>%</small>`;
+  $("hud-bar").style.width = pct + "%";
+  $("hud-task").textContent = s.task || t("noJob");
+  $("hud-stage").textContent = `${stageTxt.toUpperCase()}${s.layers ? ` · ${t("layerCaps")} ${s.layer}/${s.layers}` : ""}`;
+  $("layer").innerHTML = s.layers ? `${s.layer}<small>/${s.layers}</small>` : "—";
+  $("alt-fill").style.height = (s.layers ? (s.layer / s.layers) * 100 : 0) + "%";
+  $("spd-v").innerHTML = `${esc(tx(s.speed.name))}${s.speed.mag ? `<small> ${s.speed.mag}%</small>` : ""}`;
+  $("remain").innerHTML = active ? fmtDur(s.remaining_min) : "—";
+  $("eta").textContent = s.eta ? fmtClock(s.eta) : "—";
+  // started_at is only known if the server saw the job start; otherwise estimate from the slicer prediction
+  const elapsedMin = s.job.started_at ? (Date.now() / 1000 - s.job.started_at) / 60
+    : s.job.prediction_s && s.remaining_min != null ? s.job.prediction_s / 60 - s.remaining_min : null;
+  $("elapsed").innerHTML = active && elapsedMin != null ? (s.job.started_at ? "" : "≈") + fmtDur(elapsedMin) : "—";
+
+  // payload
+  $("task").textContent = s.task || "—";
+  $("weight").innerHTML = s.job.weight_g ? `${s.job.weight_g.toFixed(1)}<small> ${t("g")}</small>` : "—";
+  $("pred").innerHTML = s.job.prediction_s ? fmtDur(s.job.prediction_s / 60) : "—";
+  $("fils").innerHTML = (s.job.filaments || []).map((f) => `<div class="fil"><span class="sw" style="background:${esc(f.color)};color:${esc(f.color)}"></span><span>${esc(f.type)}</span><span class="t">${f.m ? f.m.toFixed(2) + " " + t("meters") : ""}</span><span class="g">${f.g ? f.g.toFixed(1) + " " + t("g") : ""}</span></div>`).join("");
+  if (s.job.thumb && s.job.thumb_v !== thumbV) { thumbV = s.job.thumb_v; $("thumb").src = "/thumb.png?v=" + encodeURIComponent(thumbV); $("thumb").hidden = false; $("thumb-none").hidden = true; }
+  if (!s.job.thumb) { thumbV = null; $("thumb").hidden = true; $("thumb-none").hidden = false; }
+
+  // controls
+  $("b-light").classList.toggle("on", s.light);
+  [...$("speeds").children].forEach((b) => { b.classList.toggle("on", +b.dataset.l === s.speed.lvl); b.disabled = !active; });
+  const pb = $("b-pause");
+  pb.disabled = !active; pb.dataset.act = s.state === "PAUSE" ? "resume" : "pause";
+  pb.querySelector("span").textContent = s.state === "PAUSE" ? t("resume") : t("pause");
+  $("b-stop").disabled = !active;
+
+  // errors
+  const errs = [];
+  if (s.errors.print) errs.push(`${t("printError")} <b>${esc(s.errors.print)}</b>`);
+  (s.errors.hms || []).forEach((c) => errs.push(`HMS <a href="https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/${esc(c)}" target="_blank" rel="noopener">${esc(c)}</a>`));
+  if (s.state === "OFFLINE") errs.push(t("offline"));
+  $("alert").classList.toggle("show", errs.length > 0);
+  $("alert-t").innerHTML = errs.join(" · ");
+
+  renderTemps(s); renderAMS(s); renderFans(s); renderAI(s); renderEvents(s);
+
+  if (prevState && prevState !== "FINISH" && s.state === "FINISH") fireworks();
+  prevState = s.state;
+}
+
+/* ---------- wiring ---------- */
+applyStatic();
+buildGauges();
+$("lang").onclick = (e) => {
+  const b = e.target.closest("button");
+  if (!b || b.dataset.lang === lang) return;
+  lang = b.dataset.lang;
+  try { localStorage.setItem("lang", lang); } catch {}
+  applyStatic();
+  if (S) render(S);
+};
+function connect() {
+  const es = new EventSource("/events");
+  es.onmessage = (e) => { try { render(JSON.parse(e.data)); } catch (err) { console.error(err); } };
+  es.onerror = () => { $("pstate").textContent = t("serverDown"); document.documentElement.style.setProperty("--state", "#ff4d6a"); };
+}
+connect();
+
+const cam = $("cam");
+function startCam() { cam.src = "/stream.mjpg?t=" + Date.now(); }
+cam.onload = () => { $("cam-ph").hidden = true; $("cam-res").textContent = `${cam.naturalWidth}×${cam.naturalHeight} · 15 FPS`; };
+cam.onerror = () => { $("cam-ph").hidden = false; $("cam-ph").textContent = t("camRetry"); setTimeout(startCam, 4000); };
+startCam();
+document.addEventListener("visibilitychange", () => { if (document.hidden) cam.src = ""; else startCam(); });
+
+$("fs").onclick = () => { const v = $("view"); document.fullscreenElement ? document.exitFullscreen() : (v.requestFullscreen || v.webkitRequestFullscreen).call(v); };
+$("snap").onclick = () => { const a = document.createElement("a"); a.href = "/snapshot.jpg?t=" + Date.now(); a.download = `h2s-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.jpg`; a.click(); };
+$("b-light").onclick = () => cmd("light", { on: !(S && S.light) });
+$("b-pause").onclick = (e) => cmd(e.currentTarget.dataset.act || "pause");
+$("speeds").onclick = (e) => { const b = e.target.closest("button"); if (b && !b.disabled) cmd("speed", { level: +b.dataset.l }); };
+
+// hold-to-stop
+(() => {
+  const b = $("b-stop"), fill = b.querySelector(".hold");
+  let t0 = 0, raf = 0;
+  const reset = () => { cancelAnimationFrame(raf); t0 = 0; fill.style.width = "0"; };
+  const tick = () => {
+    const p = Math.min((performance.now() - t0) / 2000, 1);
+    fill.style.width = p * 100 + "%";
+    if (p >= 1) { reset(); cmd("stop"); return; }
+    raf = requestAnimationFrame(tick);
+  };
+  b.addEventListener("pointerdown", () => { if (b.disabled) return; t0 = performance.now(); raf = requestAnimationFrame(tick); });
+  ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => b.addEventListener(ev, reset));
+})();
+
+setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString(loc(), { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }, 1000);
+</script>
+</body>
+</html>

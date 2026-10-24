@@ -1,0 +1,6 @@
+# Секреты и локальное окружение
+config.json
+.venv/
+server.log
+__pycache__/
+.DS_Store
