@@ -61,7 +61,8 @@ def configured():
 _local_ff = os.path.join(BASE, "bin", "ffmpeg.exe" if os.name == "nt" else "ffmpeg")
 FFMPEG = _local_ff if os.path.exists(_local_ff) else "ffmpeg"
 # The printer's certificate is self-signed; ffmpeg 9+ verifies TLS by default and would refuse it.
-FF_IN = ["-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-tls_verify", "0"]
+# -timeout (µs) makes ffmpeg give up when the printer silently stops sending, instead of hanging forever.
+FF_IN = ["-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-tls_verify", "0", "-timeout", "10000000"]
 
 
 def rtsp_url():
@@ -524,19 +525,18 @@ class Camera:
     def __init__(self):
         self.cond = threading.Condition()
         self.frame, self.frame_t = None, 0.0
-        self.clients, self.proc, self.idle_since = 0, None, time.time()
+        self.clients, self.proc, self.idle_since, self.started_at = 0, None, time.time(), 0.0
         threading.Thread(target=self._watch, daemon=True).start()
 
     def restart(self):
         """Drop the stream so the watcher reopens it with the current settings."""
-        proc, self.proc = self.proc, None
-        if proc is not None and proc.poll() is None:
-            proc.terminate()
+        self._stop(kill=True)
         self.frame = None
 
     def _start(self):
         if not configured():
             return
+        self.started_at = time.time()
         self.proc = subprocess.Popen(
             [FFMPEG, *FF_IN, "-i", rtsp_url(),
              "-an", "-vf", "scale=1280:-2,fps=15", "-q:v", "6", "-f", "mjpeg", "pipe:1"],
@@ -568,9 +568,16 @@ class Camera:
             alive = self.proc is not None and self.proc.poll() is None
             if self.clients > 0 and not alive:
                 self._start()
+            elif self.clients > 0 and time.time() - max(self.frame_t, self.started_at) > 20:
+                # Backstop for -timeout: a stalled ffmpeg can ignore SIGTERM, so kill it outright.
+                self._stop(kill=True)
             elif self.clients == 0 and alive and time.time() - self.idle_since > 20:
-                self.proc.terminate()
-                self.proc = None
+                self._stop()
+
+    def _stop(self, kill=False):
+        proc, self.proc = self.proc, None
+        if proc is not None and proc.poll() is None:
+            proc.kill() if kill else proc.terminate()
 
     def acquire(self):
         with self.cond:
