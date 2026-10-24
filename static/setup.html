@@ -29,6 +29,8 @@ body { -webkit-font-smoothing: antialiased; overflow-x: hidden; }
   background: radial-gradient(40% 35% at 20% 25%, rgba(157,123,255,.28), transparent 70%), radial-gradient(35% 30% at 85% 15%, rgba(72,224,255,.18), transparent 70%), radial-gradient(45% 40% at 70% 90%, rgba(255,95,168,.16), transparent 70%); }
 .wrap { position: relative; max-width: 720px; margin: 0 auto; padding: 22px 16px 48px; }
 header { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; flex-wrap: wrap; }
+a.logo { cursor: pointer; transition: transform .2s, box-shadow .2s; }
+a.logo:hover { transform: scale(1.08); box-shadow: 0 0 32px rgba(157,123,255,.75); }
 .logo { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none;
   background: conic-gradient(from 200deg, var(--cyan), var(--violet), var(--pink), var(--cyan)); box-shadow: 0 0 24px rgba(157,123,255,.45); }
 .logo svg { width: 22px; height: 22px; }
@@ -110,7 +112,7 @@ label.check input { width: auto; }
 <div class="nebula"></div>
 <div class="wrap">
   <header>
-    <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#04050d" stroke-width="2.4" stroke-linecap="round"><path d="M4 20h16M7 20V9l5-5 5 5v11M10 14h4"/></svg></div>
+    <a class="logo" id="home" href="/" title="Dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="#04050d" stroke-width="2.4" stroke-linecap="round"><path d="M4 20h16M7 20V9l5-5 5 5v11M10 14h4"/></svg></a>
     <div><h1 data-i18n="title">Настройка принтера</h1><small>Mission Control</small></div>
     <div class="sp"></div>
     <div class="lang" id="lang"><button data-lang="ru">RU</button><button data-lang="en">EN</button></div>
@@ -200,6 +202,11 @@ label.check input { width: auto; }
         <div class="field"><label data-i18n="cNightTime">Ночной тариф действует</label>
           <div style="display:flex;gap:8px;align-items:center"><input id="c-nf" type="time" value="22:00"><span>—</span><input id="c-nt" type="time" value="06:00"></div></div>
       </div>
+      <h2 style="margin-top:26px" id="stream"><span class="n">●</span><span data-i18n="sStream">Трансляции</span></h2>
+      <p class="lead" data-i18n="sStreamLead">Ключи из YouTube Studio, Twitch и других сервисов. Хранятся только в config.json, наружу не отдаются. Запуск — кнопкой под видео на дашборде.</p>
+      <label class="check" style="margin-bottom:10px"><input type="checkbox" id="st-hud"> <span data-i18n="stHud">Оформление дашборда поверх трансляции</span></label>
+      <div class="hint" id="st-hud-hint" hidden data-i18n="stHudNo"></div>
+      <div class="fields" id="st-targets"></div>
       <div class="actions">
         <button type="button" class="btn" id="test"><span data-i18n="test">Проверить связь</span></button>
         <button type="submit" class="btn primary" id="save"><span data-i18n="save">Сохранить и подключить</span></button>
@@ -234,6 +241,9 @@ const I18N = {
     e_code_required: "Введите Access Code: для другого принтера сохранённый не используется", e_port: "Порт должен быть от 1024 до 65535", e_net: "Сервер дашборда недоступен",
     f_reach: "Принтер не отвечает по этому адресу. Проверьте IP и что он в той же сети.", f_auth: "Принтер найден, но Access Code не подошёл.", f_status: "Подключились, но статус не пришёл. Проверьте серийный номер.",
     state: "состояние",
+    sStream: "Трансляции", sStreamLead: "Ключи из YouTube Studio, Twitch и других сервисов. Хранятся только в config.json, наружу не отдаются. Запуск — кнопкой под видео на дашборде.",
+    stHud: "Оформление дашборда поверх трансляции (процент, задание, слой, температуры)", stServer: "сервер", stKey: "ключ трансляции", stKeySaved: "сохранён",
+    stHudNo: "Ваш ffmpeg собран без drawtext, поэтому трансляция пойдёт без оформления. Полная сборка: см. README, раздел «Установка».", e_stream_server: "Адрес сервера трансляции должен начинаться с rtmp:// или rtmps://", e_stream_key: "Ключ трансляции без пробелов",
     devMode: "На принтере включён Developer Mode",
     devModeHint: "Открывает на пульте температуры, вентиляторы и сушку AMS. Без Developer Mode свежие прошивки Bambu отклоняют эти команды. Developer Mode включается на принтере: Настройки → Сеть → LAN Only и Developer Mode; облако Bambu и Handy при этом перестают работать.",
     sMine: "Мои принтеры", addPrinter: "+ Добавить принтер", edit: "Изменить", del: "Удалить", newPrinter: "новый принтер",
@@ -268,6 +278,9 @@ const I18N = {
     e_code_required: "Enter the Access Code: the stored one is never reused for a different printer", e_port: "Port must be between 1024 and 65535", e_net: "Dashboard server unreachable",
     f_reach: "No printer answers at this address. Check the IP and that it is on the same network.", f_auth: "Printer found, but the Access Code was rejected.", f_status: "Connected, but no status arrived. Check the serial number.",
     state: "state",
+    sStream: "Broadcasting", sStreamLead: "Keys from YouTube Studio, Twitch and other services. Stored only in config.json, never sent out. Start it with the button under the video on the dashboard.",
+    stHud: "Dashboard HUD over the broadcast (percent, job, layer, temperatures)", stServer: "server", stKey: "stream key", stKeySaved: "saved",
+    stHudNo: "Your ffmpeg is built without drawtext, so the broadcast goes without the HUD. Full build: see README, Installation.", e_stream_server: "The stream server must start with rtmp:// or rtmps://", e_stream_key: "Stream key without spaces",
     devMode: "Developer Mode is on at the printer",
     devModeHint: "Shows temperature, fan and AMS drying controls on the console. Recent Bambu firmware rejects these commands without Developer Mode. Turn it on at the printer: Settings → Network → LAN Only and Developer Mode; Bambu cloud and Handy stop working then.",
     sMine: "My printers", addPrinter: "+ Add printer", edit: "Edit", del: "Remove", newPrinter: "new printer",
@@ -345,7 +358,7 @@ $("scan").onclick = async () => {
 function formData() {
   return { p: currentP, dev_mode: $("devmode").checked, host: $("host").value.trim(), access_code: $("code").value.trim(), serial: $("serial").value.trim().toUpperCase(),
            name: $("name").value.trim(), port: $("port").value.trim(),
-           new_password: $("pw").value, remove_password: $("pw-remove").checked, costs: costsData() };
+           new_password: $("pw").value, remove_password: $("pw-remove").checked, costs: costsData(), stream: streamData() };
 }
 const MATERIALS = ["PLA", "PETG", "ABS", "ASA", "TPU", "PA", "PC", "PVA"];
 $("c-types").innerHTML = MATERIALS.map((m) => `<div class="field"><label for="c-${m}">${m}</label><input id="c-${m}" data-mat="${m}" inputmode="decimal"></div>`).join("");
@@ -355,6 +368,23 @@ function costsData() {
   document.querySelectorAll("[data-mat]").forEach((i) => { const v = i.value.trim().replace(",", "."); if (v) filament[i.dataset.mat] = v; });
   return { currency: $("c-cur").value.trim(), default_kg: numOrEmpty("c-def"), filament, power_w: numOrEmpty("c-w"),
            day_price: numOrEmpty("c-day"), night_price: numOrEmpty("c-night"), night_from: $("c-nf").value || "22:00", night_to: $("c-nt").value || "06:00" };
+}
+const SERVICES = { youtube: "YouTube", twitch: "Twitch", kick: "Kick", facebook: "Facebook", custom: "RTMP" };
+function fillStream(st) {
+  if (!st) return;
+  $("st-hud").checked = !!st.overlay; $("st-hud").disabled = !st.overlay_supported; $("st-hud-hint").hidden = !!st.overlay_supported;
+  $("st-targets").innerHTML = Object.entries(SERVICES).map(([k, name]) => {
+    const tg = st.targets[k] || {};
+    return `<div class="field"><label>${name}</label>
+      <input data-st-server="${k}" value="${esc(tg.server || "")}" placeholder="rtmp://… ${t("stServer")}" spellcheck="false">
+      <input data-st-key="${k}" type="password" autocomplete="off" placeholder="${tg.has_key ? "•••••••• " + t("stKeySaved") : t("stKey")}" spellcheck="false" style="margin-top:6px"></div>`;
+  }).join("");
+}
+function streamData() {
+  const targets = {};
+  document.querySelectorAll("[data-st-server]").forEach((i) => { targets[i.dataset.stServer] = { server: i.value.trim() }; });
+  document.querySelectorAll("[data-st-key]").forEach((i) => { if (i.value.trim()) targets[i.dataset.stKey].key = i.value.trim(); });
+  return { overlay: $("st-hud").checked, targets };
 }
 function fillCosts(c) {
   if (!c) return;
@@ -404,6 +434,12 @@ $("form").onsubmit = async (e) => {
   } catch { showMsg("err", t("e_net")); }
   busy($("save"), false);
 };
+// Back from settings (browser or mouse button) always goes to the main dashboard screen.
+const toMain = () => { location.href = "/" + (currentP && currentP !== "new" ? "?p=" + encodeURIComponent(currentP) : ""); };
+$("home").onclick = (e) => { e.preventDefault(); toMain(); };
+history.replaceState({ base: true }, "", location.href);
+history.pushState({ setup: true }, "", location.href);
+addEventListener("popstate", toMain);
 $("eye").onclick = () => { const c = $("code"); c.type = c.type === "password" ? "text" : "password"; };
 
 function renderPrinters() {
@@ -456,7 +492,7 @@ $("gate-form").onsubmit = async (e) => {
     const want = new URLSearchParams(location.search).get("p");
     selectPrinter(conf.printers.some((p) => p.id === want) ? want : conf.printers.length ? conf.printers[0].id : "new", true);
     $("pw-remove-wrap").hidden = !conf.has_password;
-    fillCosts(conf.costs);
+    fillCosts(conf.costs); fillStream(conf.stream);
   } catch {}
   applyLang();
   if (!conf || !conf.printers.length) $("scan").click();

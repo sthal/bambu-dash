@@ -23,6 +23,7 @@ import signal
 import socket
 import ssl
 import struct
+import sys
 import subprocess
 import tempfile
 import threading
@@ -40,6 +41,13 @@ from history import DEFAULT_COSTS, History, job_costs
 BASE = os.path.dirname(os.path.abspath(__file__))
 CFG_PATH = os.path.join(BASE, "config.json")
 DEFAULTS = {"port": 8790, "password_hash": "", "session_secret": "", "printers": []}
+STREAM_SERVICES = {  # default ingest servers; the stream key is appended
+    "youtube": "rtmp://a.rtmp.youtube.com/live2",
+    "twitch": "rtmp://live.twitch.tv/app",
+    "kick": "rtmps://fa723fc1b171.global-contribute.live-video.net:443/app",
+    "facebook": "rtmps://live-api-s.facebook.com:443/rtmp",
+    "custom": "",
+}
 PRINTER_KEYS = ("host", "serial", "access_code", "name", "locked_cmds", "dev_mode")
 ACTIVE = ("PREPARE", "RUNNING", "PAUSE")
 
@@ -51,6 +59,11 @@ def load_cfg():
     except FileNotFoundError:
         c = dict(DEFAULTS)
     c["costs"] = {**DEFAULT_COSTS, **(c.get("costs") or {})}
+    st = c.get("stream") or {}
+    c["stream"] = {"overlay": st.get("overlay", True),
+                   "targets": {k: {"server": (st.get("targets", {}).get(k) or {}).get("server") or v,
+                                   "key": (st.get("targets", {}).get(k) or {}).get("key", "")}
+                               for k, v in STREAM_SERVICES.items()}}
     # Single-printer configs (before multi-printer support) keep the printer at the top level.
     if c.get("host") and not c["printers"]:
         c["printers"] = [{"id": "p1", **{k: c.get(k) for k in PRINTER_KEYS}}]
@@ -99,6 +112,19 @@ FFMPEG = _local_ff if os.path.exists(_local_ff) else "ffmpeg"
 # The printer's certificate is self-signed; ffmpeg 9+ verifies TLS by default and would refuse it.
 # -timeout (µs) makes ffmpeg give up when the printer silently stops sending, instead of hanging forever.
 FF_IN = ["-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-tls_verify", "0", "-timeout", "10000000"]
+
+
+def _has_drawtext():
+    try:
+        out = subprocess.run([FFMPEG, "-hide_banner", "-filters"], capture_output=True, text=True, timeout=10).stdout
+        return " drawtext " in out
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+HAS_DRAWTEXT = _has_drawtext()  # the stream HUD needs ffmpeg built with libfreetype
+HUD_FONT = next((f for f in ("/System/Library/Fonts/Menlo.ttc", "C:/Windows/Fonts/consola.ttf",
+                             "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf") if os.path.exists(f)), None)
 
 
 # Every user-facing string goes out as {"ru": ..., "en": ...}; the page picks the language.
@@ -466,6 +492,7 @@ class Printer:
         self.relay = Relay(self)
         self.camera = Camera(self)
         self.h264 = H264Camera(self)
+        self.streamer = Streamer(self)
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"mission-{os.getpid()}-{conf['id']}")
         for target in (self.mqtt_loop, self.sampler, self.broadcaster):
             threading.Thread(target=target, daemon=True).start()
@@ -495,6 +522,7 @@ class Printer:
         self.cfg_changed.set()
         self.camera._stop(kill=True)
         self.h264._stop(kill=True)
+        self.streamer.stop()
         self.relay.close()
         try:
             self.client.disconnect()
@@ -611,6 +639,7 @@ class Printer:
             "ai": {"spaghetti": xc.get("spaghetti_detector"), "first_layer": xc.get("first_layer_inspector"),
                    "halt": xc.get("print_halt"), "sensitivity": xc.get("halt_print_sensitivity")},
             "locked": self.conf["locked_cmds"], "dev_mode": bool(self.conf.get("dev_mode")),
+            "stream": self.streamer.status() if hasattr(self, "streamer") else None,
             "errors": {"print": f"{perr:08X}" if perr else None, "print_text": error_text(f"{perr:08X}") if perr else None,
                        "hms": [{"code": c, "text": hms_text(c)} for c in hms]},
             "job": {"started_at": job.get("started_at"), "thumb": bool(job.get("thumb")),
@@ -998,6 +1027,161 @@ class Printer:
             self.dirty.set()
 
 
+class Streamer:
+    """Live broadcast of one printer's camera to RTMP services (YouTube, Twitch...), optionally with a HUD.
+
+    One ffmpeg reads the camera through the relay and pushes to every selected service at once (tee
+    muxer, a failing service doesn't stop the others). It restarts itself while the broadcast is wanted.
+    """
+
+    def __init__(self, pr):
+        self.pr = pr
+        self.proc, self.want, self.targets, self.overlay = None, False, [], False
+        self.since, self.error, self.fps, self.kbps = None, None, None, None
+        self.hud_dir = os.path.join(BASE, "state", f"hud-{pr.id}")
+        threading.Thread(target=self._watch, daemon=True).start()
+
+    def status(self):
+        return {"live": bool(self.want and self.proc and self.proc.poll() is None and self.fps),
+                "starting": bool(self.want and not self.fps), "targets": self.targets, "since": self.since,
+                "fps": self.fps, "kbps": self.kbps, "error": self.error, "overlay": self.overlay}
+
+    def start(self, names, overlay):
+        targets = cfg["stream"]["targets"]
+        urls = []
+        for n in names:
+            t = targets.get(n) or {}
+            if not t.get("server") and not t.get("key"):
+                continue
+            urls.append(t["server"] if n == "custom" and not t.get("key") else f"{t['server'].rstrip('/')}/{t['key']}")
+        if not urls:
+            return "no_targets"
+        self.stop()
+        self.targets, self.urls = list(names), urls
+        self.overlay = bool(overlay and HAS_DRAWTEXT and HUD_FONT)
+        self.want, self.error, self.since = True, None, time.time()
+        self._spawn()
+        self.pr.log("cmd", L(f"Трансляция запущена: {', '.join(names)}", f"Broadcast started: {', '.join(names)}"))
+        return None
+
+    def stop(self):
+        was = self.want
+        self.want = False
+        proc, self.proc = self.proc, None
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        self.fps = self.kbps = None
+        if was:
+            self.pr.log("cmd", L("Трансляция остановлена", "Broadcast stopped"))
+
+    def command(self, out):
+        """ffmpeg arguments; `out` is the tee target list (also used by tests with a local file)."""
+        args = [FFMPEG, *FF_IN, "-i", self.pr.rtsp_url(),
+                "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]  # YouTube wants an audio track
+        if self.overlay:
+            d, font = self.hud_dir, HUD_FONT.replace(":", "\\\\:")
+            def txt(name, x, y, size, color, extra=""):
+                return (f"drawtext=fontfile='{font}':textfile='{os.path.join(d, name)}':reload=1:x={x}:y={y}:"
+                        f"fontsize={size}:fontcolor={color}:shadowcolor=black@0.7:shadowx=2:shadowy=2:expansion=none{extra}")
+            chain = ",".join([
+                "drawbox=x=0:y=ih-230:w=iw:h=230:color=0x03040c@0.55:t=fill",
+                f"drawtext=fontfile='{font}':text='●':x=40:y=34:fontsize=30:fontcolor=0xff4d6a:shadowcolor=0xff4d6a@0.6:shadowx=0:shadowy=0",
+                txt("tag.txt", 78, 34, 30, "white"),
+                txt("temps.txt", "w-tw-40", 34, 28, "0xc9d0f0"),
+                txt("pct.txt", 40, "h-180", 120, "white"),
+                txt("task.txt", 330, "h-165", 44, "white"),
+                txt("line.txt", 330, "h-105", 32, "0x48e0ff"),
+                txt("bar.txt", 330, "h-62", 30, "0x9d7bff"),
+                "pad=1920:1080:(ow-iw)/2:0:color=0x04050d",
+            ])
+            enc = (["-c:v", "h264_videotoolbox", "-b:v", "5000k", "-maxrate", "6000k", "-bufsize", "10000k"]
+                   if sys.platform == "darwin" else ["-c:v", "libx264", "-preset", "veryfast", "-b:v", "4500k", "-maxrate", "5000k", "-bufsize", "9000k"])
+            args += ["-filter_complex", f"[0:v]{chain}[v]", "-map", "[v]", "-map", "1:a", *enc,
+                     "-r", "30", "-g", "60", "-pix_fmt", "yuv420p"]
+        else:
+            args += ["-map", "0:v", "-map", "1:a", "-c:v", "copy"]  # the camera already sends a keyframe every second
+        args += ["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-progress", "pipe:2", "-nostats",
+                 "-f", "tee", "|".join(f"[f=flv:onfail=ignore]{u}" for u in out)]
+        return args
+
+    def write_hud(self):
+        """Text files the drawtext filters re-read every frame; replaced atomically."""
+        os.makedirs(self.hud_dir, exist_ok=True)
+        with self.pr.lock:
+            v = self.pr.build_view()
+        stage = v["stage"]["ru"].upper()
+        layer = f" · СЛОЙ {v['layer']}/{v['layers']}" if v["layers"] else ""
+        rem = v["remaining_min"]
+        eta = f" · ОСТАЛОСЬ {int(rem // 60)}Ч {int(rem % 60):02d}М" if rem and v["state"] in ACTIVE else ""
+        n = 40
+        filled = round(n * v["pct"] / 100)
+        tt = v["temps"]
+        f = lambda x: "—" if x is None else f"{x:.0f}°"
+        files = {
+            "tag.txt": f"LIVE · {v['name']} · MISSION CONTROL",
+            "temps.txt": f"СОПЛО {f(tt['nozzle']['cur'])}   СТОЛ {f(tt['bed']['cur'])}   КАМЕРА {f(tt['chamber']['cur'])}",
+            "pct.txt": f"{v['pct']}%",
+            "task.txt": v["task"] or v["name"],
+            "line.txt": f"{stage}{layer}{eta}",
+            "bar.txt": "━" * filled + "─" * (n - filled),
+        }
+        for name, text in files.items():
+            tmp = os.path.join(self.hud_dir, name + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            os.replace(tmp, os.path.join(self.hud_dir, name))
+
+    def _spawn(self):
+        if self.overlay:
+            self.write_hud()
+        self.fps = self.kbps = None
+        self.proc = subprocess.Popen(self.command(self.urls), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, bufsize=0)
+        threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
+
+    def _read(self, proc):
+        buf, size = b"", 0
+        while True:
+            chunk = proc.stderr.read(4096)
+            if not chunk:
+                break
+            buf += chunk
+            *lines, buf = buf.split(b"\n")
+            for line in lines:
+                line = line.strip()
+                # -progress writes key=value lines; anything else on stderr is an ffmpeg error message
+                if m := re.match(rb"^fps=([\d.]+)$", line):
+                    self.fps = float(m.group(1)) or self.fps
+                elif m := re.match(rb"^bitrate=\s*([\d.]+)kbits", line):
+                    self.kbps = float(m.group(1))
+                elif m := re.match(rb"^total_size=(\d+)$", line):
+                    size = int(m.group(1))  # the tee muxer reports no bitrate; derive it from bytes sent
+                elif (m := re.match(rb"^out_time_us=(\d+)$", line)) and int(m.group(1)) > 0 and size:
+                    self.kbps = round(size * 8 / (int(m.group(1)) / 1e6) / 1000)
+                elif line and b"=" not in line[:20] and self.want:
+                    self.error = line.decode("utf-8", "replace")[-200:]
+            self.pr.dirty.set()
+
+    def _watch(self):
+        while not self.pr.stopped:
+            time.sleep(2)
+            if not self.want:
+                continue
+            if self.overlay:
+                try:
+                    self.write_hud()
+                except Exception:  # noqa: BLE001 - a missed HUD update is harmless
+                    pass
+            if self.proc is None or self.proc.poll() is not None:
+                time.sleep(3)  # back off, then reconnect (network blip, service hiccup)
+                if self.want:
+                    self._spawn()
+        self.stop()
+
+
 printers = {}  # id -> Printer, in settings order
 
 
@@ -1331,6 +1515,8 @@ class Handler(BaseHTTPRequestHandler):
             # Never hand an access code back out, only whether one is stored.
             return self._json(200, {
                 "port": cfg["port"], "running_port": PORT, "has_password": auth_required(), "costs": cfg["costs"],
+                "stream": {"overlay": cfg["stream"]["overlay"], "overlay_supported": bool(HAS_DRAWTEXT and HUD_FONT),
+                           "targets": {k: {"server": v["server"], "has_key": bool(v["key"])} for k, v in cfg["stream"]["targets"].items()}},
                 "printers": [{"id": p["id"], "name": p["name"], "host": p.get("host"), "serial": p.get("serial"),
                               "has_code": bool(p.get("access_code")), "dev_mode": bool(p.get("dev_mode")),
                               "configured": printers[p["id"]].configured()}
@@ -1407,6 +1593,18 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in ("/api/cmd", "/api/test", "/api/config", "/api/printer/delete", "/api/history/delete") \
                 and not self._authed():
             return self._deny()
+        if self.path == "/api/stream":
+            if not self._authed():
+                return self._deny()
+            pr = self._printer(a.get("p"))
+            if pr is None or not pr.configured():
+                return self._json(409, {"ok": False, "error": "not configured"})
+            if a.get("action") == "stop":
+                pr.streamer.stop()
+                return self._json(200, {"ok": True})
+            names = [n for n in (a.get("targets") or []) if n in STREAM_SERVICES]
+            err = pr.streamer.start(names, a.get("overlay", cfg["stream"]["overlay"]))
+            return self._json(400 if err else 200, {"ok": not err, "error": err})
         if self.path == "/api/history/delete":
             hist_db.delete(int(_num(a.get("id"), 0) or 0))
             return self._json(200, {"ok": True})
@@ -1458,6 +1656,21 @@ class Handler(BaseHTTPRequestHandler):
         if not 1024 <= port <= 65535:
             return self._json(400, {"ok": False, "error": "port"})
         new_global["port"] = port
+        if isinstance(a.get("stream"), dict):
+            st, cur = a["stream"], cfg["stream"]
+            targets = {}
+            for k in STREAM_SERVICES:
+                t, old = st.get("targets", {}).get(k) or {}, cur["targets"][k]
+                server = str(t.get("server", old["server"]) or STREAM_SERVICES[k]).strip()
+                if server and not re.match(r"^rtmps?://[^\s|]+$", server):
+                    return self._json(400, {"ok": False, "error": "stream_server"})
+                key = old["key"] if t.get("key") in (None, "") else str(t["key"]).strip()
+                if t.get("clear"):
+                    key = ""
+                if not re.match(r"^[^\s|]{0,200}$", key):
+                    return self._json(400, {"ok": False, "error": "stream_key"})
+                targets[k] = {"server": server, "key": key}
+            new_global["stream"] = {"overlay": bool(st.get("overlay", cur["overlay"])), "targets": targets}
         if "costs" in a:
             costs, err = parse_costs(a["costs"])
             if err:
@@ -1661,6 +1874,8 @@ def shutdown(*_):
     for pr in list(printers.values()):
         pr.camera._stop(kill=True)
         pr.h264._stop(kill=True)
+        if pr.streamer.proc is not None:
+            pr.streamer.proc.kill()
     os._exit(0)
 
 

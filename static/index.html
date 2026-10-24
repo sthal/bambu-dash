@@ -54,6 +54,8 @@ body { overflow-x: hidden; -webkit-font-smoothing: antialiased; }
 /* header */
 header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; flex-wrap: wrap; }
 .brand { display: flex; align-items: center; gap: 12px; }
+a.logo { cursor: pointer; transition: transform .2s, box-shadow .2s; }
+a.logo:hover { transform: scale(1.08); box-shadow: 0 0 32px rgba(157,123,255,.75); }
 .logo { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
   background: conic-gradient(from 200deg, var(--cyan), var(--violet), var(--pink), var(--cyan));
   box-shadow: 0 0 24px rgba(157,123,255,.45); }
@@ -398,6 +400,20 @@ header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; fle
 .zoom-badge button { border: 0; background: rgba(255,255,255,.1); color: #fff; border-radius: 6px; font: 600 11px var(--sans); padding: 3px 7px; cursor: pointer; }
 
 /* model progress picture-in-picture */
+.onair { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 10px; font: 700 12px var(--mono); letter-spacing: .08em;
+  color: #fff; background: rgba(255,77,106,.22); border: 1px solid rgba(255,77,106,.6); box-shadow: 0 0 18px rgba(255,77,106,.35); }
+.onair i { width: 8px; height: 8px; border-radius: 50%; background: #ff4d6a; box-shadow: 0 0 10px #ff4d6a; animation: pulse 1.2s infinite; }
+.live-panel { position: absolute; right: 22px; bottom: 74px; z-index: 6; width: 300px; pointer-events: auto; display: grid; gap: 10px;
+  background: var(--panel-hi); border: 1px solid var(--line-hi); border-radius: 16px; padding: 14px; backdrop-filter: blur(12px); box-shadow: 0 20px 50px rgba(0,0,0,.5); }
+.live-panel h4 { margin: 0; font: 600 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+.live-panel label { display: flex; align-items: center; gap: 9px; font: 600 13px var(--sans); cursor: pointer; }
+.live-panel label.dis { opacity: .4; cursor: not-allowed; }
+.live-panel .st { font: 500 11px var(--mono); color: var(--dim); }
+.live-panel .st.err { color: #ff8da0; }
+.live-panel .go { border-radius: 11px; border: 1px solid rgba(255,77,106,.6); background: rgba(255,77,106,.18); color: #fff; font: 700 13px var(--sans); padding: 10px; cursor: pointer; }
+.live-panel .go.stop { background: rgba(255,255,255,.06); border-color: var(--line-hi); }
+.live-panel a { color: var(--cyan); font-size: 12px; }
+#b-live.on { border-color: #ff4d6a; color: #ff8da0; box-shadow: 0 0 14px rgba(255,77,106,.4); }
 .pip { position: absolute; top: 50px; right: 22px; width: 150px; aspect-ratio: 1; border-radius: 14px; overflow: hidden; pointer-events: none;
   background: rgba(6,8,22,.62); border: 1px solid var(--line-hi); backdrop-filter: blur(8px); box-shadow: 0 8px 30px rgba(0,0,0,.45); }
 .pip canvas { position: absolute; inset: 6px; width: calc(100% - 12px); height: calc(100% - 12px); }
@@ -468,7 +484,7 @@ body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
 <div class="wrap" id="app">
   <header>
     <div class="brand">
-      <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#04050d" stroke-width="2.4" stroke-linecap="round"><path d="M4 20h16M7 20V9l5-5 5 5v11M10 14h4"/></svg></div>
+      <a class="logo" id="home" href="/" data-i18n-title="home"><svg viewBox="0 0 24 24" fill="none" stroke="#04050d" stroke-width="2.4" stroke-linecap="round"><path d="M4 20h16M7 20V9l5-5 5 5v11M10 14h4"/></svg></a>
       <div><h1 id="pname">H2S</h1><small>Mission Control</small></div>
     </div>
     <div class="pill" id="pill"><span class="dot"></span><span id="pstate" data-i18n="connecting">Подключение…</span><span class="sub" id="pstage"></span></div>
@@ -479,6 +495,7 @@ body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
       <span class="chip opt" id="ai-chip" data-i18n-title="aiTitle">AI</span>
       <span class="chip opt" id="nozzle-chip">сопло —</span>
       <span class="chip" title="Wi-Fi"><span class="bars" id="wifi"><i style="height:4px"></i><i style="height:7px"></i><i style="height:10px"></i><i style="height:12px"></i></span><b id="wifi-v">—</b></span>
+      <span class="onair" id="onair" hidden><i></i><span id="onair-t">LIVE</span></span>
       <span id="clock">--:--</span>
       <button class="icon-btn" id="b-kiosk" data-i18n-title="kiosk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></button>
       <button class="icon-btn" id="b-sound" data-i18n-title="sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path class="wave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/><path class="mute" d="M16 9l5 6M21 9l-5 6" hidden/></svg></button>
@@ -511,7 +528,9 @@ body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
               <div class="bar"><i id="hud-bar"></i></div>
             </div>
           </div>
+          <div class="live-panel" id="live-panel" hidden></div>
           <div class="tools">
+            <button class="icon-btn" id="b-live" data-i18n-title="broadcast"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19 5a10 10 0 0 1 0 14M5 19A10 10 0 0 1 5 5"/></svg></button>
             <button class="icon-btn" id="b-pip" data-i18n-title="pip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5z"/><path d="M3 13l9 5 9-5" opacity=".6"/></svg></button>
             <button class="icon-btn" id="snap" data-i18n-title="snapshot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
             <button class="icon-btn" id="fs" data-i18n-title="fullscreen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
@@ -719,6 +738,10 @@ const I18N = {
     chHours: "Часы печати по дням", chMaterials: "Пластик по материалам", kwh: "кВт·ч", kg: "кг", estimated: "≈ начало оценено",
     costTitle: "Стоимость печати", costFil: "пластик", costEnergy: "электричество", costSetPrices: "задайте цены в настройках",
     fcOk: "хватит", fcShort: "не хватит", fcUnknown: "остаток неизвестен", fcLeft: "в катушке", fcNeed: "нужно ещё",
+    home: "На главный экран", broadcast: "Трансляция", liveTitle: "Трансляция", liveStart: "Начать трансляцию", liveStop: "Остановить трансляцию", liveHud: "С оформлением дашборда",
+    liveHudNo: "Оформление недоступно: нужен ffmpeg с drawtext", liveNone: "Ключи трансляций не заданы.", liveSetup: "Настроить в настройках →",
+    liveStarting: "Подключаюсь…", liveOn: "В ЭФИРЕ", livePick: "Выберите хотя бы один сервис",
+    svc: { youtube: "YouTube", twitch: "Twitch", kick: "Kick", facebook: "Facebook", custom: "Свой RTMP" },
     zoomReset: "Сброс", pip: "Модель поверх камеры", kiosk: "Режим киоска (Esc — выход)", layerShort: "слой",
     nFinish: "Печать готова", nFailed: "Печать сорвалась", nPause: "Печать на паузе", nError: "Ошибка принтера",
   },
@@ -758,6 +781,10 @@ const I18N = {
     chHours: "Print hours per day", chMaterials: "Plastic by material", kwh: "kWh", kg: "kg", estimated: "≈ start estimated",
     costTitle: "Print cost", costFil: "plastic", costEnergy: "electricity", costSetPrices: "set prices in settings",
     fcOk: "enough", fcShort: "not enough", fcUnknown: "amount unknown", fcLeft: "on spool", fcNeed: "still needed",
+    home: "Back to the main screen", broadcast: "Broadcast", liveTitle: "Broadcast", liveStart: "Start broadcast", liveStop: "Stop broadcast", liveHud: "With the dashboard HUD",
+    liveHudNo: "HUD unavailable: needs ffmpeg with drawtext", liveNone: "No stream keys set.", liveSetup: "Set up in settings →",
+    liveStarting: "Connecting…", liveOn: "ON AIR", livePick: "Pick at least one service",
+    svc: { youtube: "YouTube", twitch: "Twitch", kick: "Kick", facebook: "Facebook", custom: "Custom RTMP" },
     zoomReset: "Reset", pip: "Model over camera", kiosk: "Kiosk mode (Esc to exit)", layerShort: "layer",
     nFinish: "Print finished", nFailed: "Print failed", nPause: "Print paused", nError: "Printer error",
   },
@@ -1136,7 +1163,7 @@ function render(s) {
   $("task").textContent = s.task || "—";
   $("weight").innerHTML = s.job.weight_g ? `${s.job.weight_g.toFixed(1)}<small> ${t("g")}</small>` : "—";
   $("pred").innerHTML = s.job.prediction_s ? fmtDur(s.job.prediction_s / 60) : "—";
-  renderMoney(s); renderTune(s);
+  renderMoney(s); renderTune(s); renderLive(s);
   $("fils").innerHTML = (s.job.filaments || []).map((f) => `<div class="fil"><span class="sw" style="background:${esc(f.color)};color:${esc(f.color)}"></span><span>${esc(f.type)}</span><span class="t">${f.m ? f.m.toFixed(2) + " " + t("meters") : ""}</span><span class="g">${f.g ? f.g.toFixed(1) + " " + t("g") : ""}</span></div>`).join("");
   if (s.job.thumb && s.job.thumb_v !== thumbV) {
     thumbV = s.job.thumb_v;
@@ -1364,6 +1391,61 @@ function switchPrinter(id) {
   stopCam(); startCam(); connect(); loadHistory();
 }
 
+/* ---------- broadcast to YouTube / Twitch / ... ---------- */
+let liveCfg = null, liveOpen = false;
+function renderLive(s) {
+  const st = s.stream || {}, on = !!(st.live || st.starting);
+  $("b-live").classList.toggle("on", on);
+  $("onair").hidden = !st.live;
+  if (st.live && st.since) {
+    const m = Math.floor((Date.now() / 1000 - st.since) / 60);
+    $("onair-t").textContent = `${t("liveOn")} ${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
+  }
+  if (liveOpen) renderLivePanel();
+}
+async function openLive() {
+  liveOpen = !liveOpen;
+  $("live-panel").hidden = !liveOpen;
+  if (!liveOpen) return;
+  const r = await fetch("/api/config");
+  if (r.status === 401) { liveOpen = false; $("live-panel").hidden = true; return askLogin(openLive); }
+  liveCfg = (await r.json()).stream;
+  renderLivePanel();
+}
+function renderLivePanel() {
+  const box = $("live-panel"), st = (S && S.stream) || {}, on = !!(st.live || st.starting);
+  if (!liveCfg) return;
+  const ready = Object.entries(liveCfg.targets).filter(([k, v]) => v.has_key || (k === "custom" && v.server));
+  const chosen = new Set(on ? st.targets : [...box.querySelectorAll("input[data-svc]:checked")].map((i) => i.dataset.svc));
+  if (!box.dataset.init && !on) ready.forEach(([k]) => chosen.add(k));
+  box.dataset.init = "1";
+  const hud = box.querySelector("#live-hud");
+  const hudOn = on ? st.overlay : hud ? hud.checked : liveCfg.overlay && liveCfg.overlay_supported;
+  const status = st.live ? `● ${t("liveOn")} · ${st.fps ? Math.round(st.fps) + " FPS" : ""}${st.kbps ? " · " + Math.round(st.kbps) + " kbps" : ""}`
+    : st.starting ? t("liveStarting") : "";
+  const html = `<h4>${t("liveTitle")}</h4>
+    ${ready.length ? ready.map(([k]) => `<label><input type="checkbox" data-svc="${k}" ${chosen.has(k) ? "checked" : ""} ${on ? "disabled" : ""}> ${esc(t("svc")[k] || k)}</label>`).join("")
+      : `<div class="st">${t("liveNone")}</div>`}
+    <label class="${liveCfg.overlay_supported ? "" : "dis"}" title="${liveCfg.overlay_supported ? "" : esc(t("liveHudNo"))}"><input type="checkbox" id="live-hud" ${hudOn ? "checked" : ""} ${on || !liveCfg.overlay_supported ? "disabled" : ""}> ${t("liveHud")}</label>
+    ${ready.length ? `<button class="go ${on ? "stop" : ""}" id="live-go">${on ? t("liveStop") : t("liveStart")}</button>` : ""}
+    ${status ? `<div class="st">${status}</div>` : ""}${st.error && on ? `<div class="st err">${esc(st.error)}</div>` : ""}
+    <a href="/setup#stream">${t("liveSetup")}</a>`;
+  // re-render only on change, so a click isn't lost to a button being replaced mid-press
+  if (box.dataset.h !== html) { box.innerHTML = html; box.dataset.h = html; }
+}
+$("b-live").onclick = (e) => { e.stopPropagation(); openLive(); };
+$("live-panel").addEventListener("click", async (e) => {
+  e.stopPropagation();
+  const b = e.target.closest("#live-go"); if (!b) return;
+  const st = (S && S.stream) || {}, on = !!(st.live || st.starting);
+  const targets = [...$("live-panel").querySelectorAll("input[data-svc]:checked")].map((i) => i.dataset.svc);
+  if (!on && !targets.length) return toast(t("livePick"));
+  const body = on ? { p: PID, action: "stop" } : { p: PID, action: "start", targets, overlay: $("live-hud").checked };
+  const r = await fetch("/api/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (r.status === 401) return askLogin(() => b.click());
+  toast(r.ok ? t("cmdSent") : t("cmdFail"));
+});
+
 /* ---------- payload: live cost estimate and "will the spool last" ---------- */
 const money = (v, cur) => (v == null ? "—" : `${cur || ""}${v.toFixed(2)}`);
 function renderMoney(s) {
@@ -1562,7 +1644,8 @@ async function openReport(id) {
   let d;
   try { d = await (await fetch(`/api/history/${id}`)).json(); } catch { return; }
   rp = { id, data: d, view: "3d", hidden: new Set() };
-  const u = new URL(location.href); u.searchParams.set("job", id); history.replaceState(null, "", u);
+  const u = new URL(location.href); u.searchParams.set("job", id);
+  if (!(history.state && history.state.report)) history.pushState({ report: id }, "", u); else history.replaceState({ report: id }, "", u);
   $("report").hidden = false; document.body.style.overflow = "hidden";
   renderReport();
   rp.sil = d.has_thumb ? await silhouetteFrom(`/api/history/${id}/thumb.png`) : null;
@@ -1572,8 +1655,26 @@ function closeReport() {
   $("report").hidden = true; document.body.style.overflow = "";
   if (rp && rp.three) rp.three.dispose();
   rp = null;
-  const u = new URL(location.href); u.searchParams.delete("job"); history.replaceState(null, "", u);
+  const u = new URL(location.href); u.searchParams.delete("job"); history.replaceState({ main: true }, "", u);
 }
+/* "Main screen": no report, no popups, scrolled to the top (logo click, Back button, mouse back button). */
+function goHome() {
+  if (rp) closeReport();
+  liveOpen = false; $("live-panel").hidden = true; $("login").hidden = true;
+  zoom.s = 1; applyZoom();
+  scrollTo({ top: 0, behavior: "smooth" });
+}
+$("home").onclick = (e) => { e.preventDefault(); goHome(); };
+// Back (browser button, mouse back button, swipe) always lands on the main screen and stays in the app:
+// the page keeps one extra history entry, so Back never leaves the dashboard.
+if (!(history.state && history.state.main)) {
+  history.replaceState({ main: true, base: true }, "", location.href);
+  history.pushState({ main: true }, "", location.href);
+}
+addEventListener("popstate", (e) => {
+  goHome();
+  if (!e.state || e.state.base) history.pushState({ main: true }, "", location.href.replace(/[?&]job=\d+/, ""));
+});
 $("rp-close").onclick = closeReport;
 addEventListener("keydown", (e) => { if (e.key === "Escape" && rp) closeReport(); });
 function renderReport() {
