@@ -1,5 +1,7 @@
 # H2S Mission Control (Windows): checks prerequisites, prepares .venv, starts the server.
 Set-Location -Path $PSScriptRoot
+# A standalone ffmpeg.exe can live in .\bin; server.py looks there too.
+$env:PATH = (Join-Path $PSScriptRoot "bin") + ";" + $env:PATH
 
 function Test-Python($exe, $pre) {
     try {

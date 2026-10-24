@@ -57,6 +57,13 @@ def configured():
     return bool(cfg["host"] and cfg["serial"] and cfg["access_code"])
 
 
+# Prefer a standalone ffmpeg dropped into ./bin (the no-Homebrew route), else whatever is on PATH.
+_local_ff = os.path.join(BASE, "bin", "ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+FFMPEG = _local_ff if os.path.exists(_local_ff) else "ffmpeg"
+# The printer's certificate is self-signed; ffmpeg 9+ verifies TLS by default and would refuse it.
+FF_IN = ["-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-tls_verify", "0"]
+
+
 def rtsp_url():
     return f"rtsps://bblp:{cfg['access_code']}@{cfg['host']}:322/streaming/live/1"
 
@@ -531,7 +538,7 @@ class Camera:
         if not configured():
             return
         self.proc = subprocess.Popen(
-            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", rtsp_url(),
+            [FFMPEG, *FF_IN, "-i", rtsp_url(),
              "-an", "-vf", "scale=1280:-2,fps=15", "-q:v", "6", "-f", "mjpeg", "pipe:1"],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
         threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
@@ -582,8 +589,7 @@ class Camera:
             return self.frame
         if not configured():
             return None
-        r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp",
-                            "-i", rtsp_url(), "-frames:v", "1", "-f", "mjpeg", "pipe:1"],
+        r = subprocess.run([FFMPEG, *FF_IN, "-i", rtsp_url(), "-frames:v", "1", "-f", "mjpeg", "pipe:1"],
                            capture_output=True, timeout=25)
         return r.stdout or None
 

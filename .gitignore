@@ -2,5 +2,6 @@
 config.json
 .venv/
 server.log
+bin/
 __pycache__/
 .DS_Store

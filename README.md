@@ -28,7 +28,7 @@ run.bat
 
   | Система | Команды |
   |---|---|
-  | macOS | `brew install python ffmpeg` (и команду установки Homebrew, если его нет) |
+  | macOS | `brew install python ffmpeg`. Если Homebrew нет, скрипт покажет, как его поставить и добавить в PATH, а также путь без Homebrew: скачать ffmpeg одной командой в папку проекта `bin/` |
   | Windows | `winget install -e --id Python.Python.3.12`<br>`winget install -e --id Gyan.FFmpeg` |
   | Debian / Ubuntu | `sudo apt install -y python3 python3-venv ffmpeg` |
 
