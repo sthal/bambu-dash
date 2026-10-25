@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -839,8 +839,8 @@ const I18N = {
     nFinish: "Print finished", nFailed: "Print failed", nPause: "Print paused", nError: "Printer error",
   },
 };
-let lang = "ru";
-try { lang = localStorage.getItem("lang") === "en" ? "en" : "ru"; } catch {}
+let lang = "en";
+try { lang = localStorage.getItem("lang") === "ru" ? "ru" : "en"; } catch {}
 const t = (k) => (I18N[lang] && I18N[lang][k]) ?? I18N.ru[k] ?? k;
 const tx = (o) => (o && typeof o === "object" ? o[lang] ?? o.ru : o ?? "");
 const loc = () => (lang === "ru" ? "ru-RU" : "en-GB");

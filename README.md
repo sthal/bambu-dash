@@ -1,182 +1,182 @@
-# Mission Control для Bambu Lab
+# Mission Control for Bambu Lab
 
-Локальный дашборд для 3D-принтеров Bambu Lab в стиле центра управления полётами. Живая камера в родном качестве, прогресс, температуры, AMS, история печатей и их стоимость — на одном экране, для одного или нескольких принтеров. Работает только в домашней сети, облако Bambu не нужно. Сделан и проверен на H2S с AMS 2 Pro и AMS HT. Интерфейс на русском и английском.
+A local dashboard for Bambu Lab 3D printers, styled like a mission control center. Live camera in native quality, progress, temperatures, AMS, print history and its cost, all on one screen, for one or several printers. Runs on your home network only; the Bambu cloud is not needed. Built and tested on an H2S with AMS 2 Pro and AMS HT. The interface is in English and Russian.
 
-![](https://img.shields.io/badge/python-3.9+-blue) ![](https://img.shields.io/badge/deps-paho--mqtt%20%2B%20ffmpeg-violet) ![](https://img.shields.io/badge/cloud-не%20нужен-3dffaa)
+![](https://img.shields.io/badge/python-3.9+-blue) ![](https://img.shields.io/badge/deps-paho--mqtt%20%2B%20ffmpeg-violet) ![](https://img.shields.io/badge/cloud-not%20needed-3dffaa)
 
-<p align="center"><img src="docs/hero.png" alt="Дашборд во время печати на компьютере и телефоне" width="100%"></p>
+<p align="center"><img src="docs/hero.png" alt="The dashboard during a print on a computer and a phone" width="100%"></p>
 
-## Возможности
+## Features
 
 <table>
 <tr>
-<td width="290" valign="top"><img src="docs/phone.png" alt="Дашборд на телефоне" width="280"></td>
+<td width="290" valign="top"><img src="docs/phone.png" alt="The dashboard on a phone" width="280"></td>
 <td valign="top">
 
-**Камера**
-- **Родное качество**: 1680×1080, 30 кадров/с, без перекодирования, около 250 КБ/с. В углу видео реальные разрешение и FPS.
-- **Зум и перемещение**: колесо мыши или щипок двумя пальцами, перетаскивание, двойной клик. Удобно рассматривать первый слой.
-- **Модель поверх камеры**: силуэт модели заполняется по мере печати, линия показывает текущий слой.
-- **Трансляция в YouTube, Twitch, Kick, Facebook** или на любой RTMP-сервер, в несколько сразу. С оформлением дашборда поверх видео (процент, задание, слой, остаток времени, температуры; кадр 1920×1080, аппаратное кодирование на Mac) или чистым видео без перекодирования. Кнопка под видео, ключи в настройках.
-- **Снимок в оформлении дашборда**: кадр в полном разрешении с рамками, процентом, именем задания, слоем, полосой прогресса и силуэтом модели. Плюс **полный экран**. Если браузер не умеет новый формат видео, сам включается запасной поток.
+**Camera**
+- **Native quality**: 1680×1080, 30 fps, no re-encoding, about 250 KB/s. The real resolution and FPS are shown in the corner of the video.
+- **Zoom and pan**: mouse wheel or two-finger pinch, drag, double-click. Handy for inspecting the first layer.
+- **Model over the camera**: the model's silhouette fills in as it prints, a line marks the current layer.
+- **Broadcast to YouTube, Twitch, Kick, Facebook** or any RTMP server, several at once. Either with the dashboard overlay on the video (percent, job, layer, time left, temperatures; 1920×1080 frame, hardware encoding on a Mac) or as clean video without re-encoding. Button under the video, keys in the settings.
+- **Snapshot in the dashboard style**: a full-resolution frame with borders, percent, job name, layer, progress bar and model silhouette. Plus **full screen**. If the browser can't play the newer video format, a fallback stream turns on by itself.
 
-**Печать**
-- **Миссия**: кольцо прогресса, шкала слоёв, сколько осталось, во сколько закончится, скорость.
-- **Груз**: превью модели и расход пластика по цветам из файла задания.
-- **Температуры** сопла, стола и камеры: текущая и целевая, графики за 30 минут.
-- **AMS**: катушки в реальном цвете с остатком, активная подсвечена; влажность и температура блоков.
-- **Пульт**: скорость, свет, пауза и пуск, стоп (удерживать 2 секунды), вентиляторы, статус ИИ-контроля печати.
-- **Температуры, вентиляторы и сушка AMS** с пульта, с ограничениями на сервере. Включаются в настройках, если на принтере включён Developer Mode (см. «Ограничения»).
+**Printing**
+- **Mission**: progress ring, layer scale, time left, finish time, speed.
+- **Payload**: model preview and filament use by color from the job file.
+- **Temperatures** of nozzle, bed and chamber: current and target, 30-minute charts.
+- **AMS**: spools in their real color with remaining amount, the active one highlighted; humidity and temperature of each unit.
+- **Console**: speed, light, pause and resume, stop (hold for 2 seconds), fans, AI print monitoring status.
+- **Temperatures, fans and AMS drying** from the console, with limits enforced on the server. Turned on in the settings if Developer Mode is on at the printer (see "Limitations").
 
-**История и деньги**
-- **Журнал печатей**: каждая печать с финальным снимком, длительностью, граммами и отдельно стоимостью пластика, электричества и итого. Переживает перезапуск сервера посреди печати.
-- **Отчёт о печати** (клик по строке журнала): 3D-просмотр реальных траекторий из G-code с ползунком «напечатано до слоя N» и цветами по типам линий, финальное фото в оформлении дашборда, превью пластины, графики температур и прогресса за всю печать, лента событий, стоимость. Скачивание фото и 3D-кадра.
-- **Статистика** за неделю, месяц, год или всё время: печати, часы, пластик, кВт·ч, стоимость, доля успешных; графики по дням и по материалам.
-- **Стоимость**: цены пластика по материалам и тарифы день/ночь в настройках, средняя мощность по умолчанию 180 Вт. Оценка текущей печати в реальном времени.
-- **Прогноз катушки**: хватит ли пластика в слоте AMS до конца печати, с предупреждением заранее.
-- **Склад катушек** (`/inventory`): все оригинальные катушки Bambu, когда-либо стоявшие в AMS, со столбцом RFID-номера, остатком, местом (слот AMS или «на полке»), напечатанным и историей печатей с каждой. Остаток считается собственным учётом по RFID, а не только оценкой AMS (она сбрасывается при переустановке катушки). Можно ввести точный вес после взвешивания, отметить «закончилась», добавить заметку; фильтры и поиск.
+**History and money**
+- **Print log**: every print with a final snapshot, duration, grams and cost split into filament, electricity and total. Survives a server restart in the middle of a print.
+- **Print report** (click a log row): 3D view of the real G-code toolpaths with a "printed up to layer N" slider and colors by line type, the final photo in the dashboard style, plate preview, temperature and progress charts for the whole print, event feed, cost. Download the photo and the 3D frame.
+- **Statistics** for a week, month, year or all time: prints, hours, filament, kWh, cost, success rate; charts by day and by material.
+- **Cost**: filament prices per material and day/night electricity rates in the settings, 180 W average power by default. Live estimate for the current print.
+- **Spool forecast**: whether the filament in the AMS slot will last until the end of the print, with an early warning.
+- **Spool inventory** (`/inventory`): every original Bambu spool that has ever been in the AMS, with an RFID number column, remaining amount, location (AMS slot or "on shelf"), amount printed and the print history of each. The remainder is tracked by RFID with our own accounting, not only by the AMS estimate (which resets when a spool is reinserted). You can enter the exact weight after weighing, mark a spool "used up", add a note; filters and search.
 
-**Ошибки и события**
-- **Ошибки текстом**: коды HMS и ошибок печати объяснены по официальной базе Bambu, на русском и английском.
-- **Звук**: мелодия по окончании печати, сигналы при паузе и ошибке.
-- **Уведомления браузера** со снимком с камеры.
-- **Бортжурнал**: смена состояний и этапов, ошибки, отправленные команды.
+**Errors and events**
+- **Errors in plain text**: HMS and print error codes explained from Bambu's official database, in English and Russian.
+- **Sound**: a tune when a print finishes, signals on pause and error.
+- **Browser notifications** with a camera snapshot.
+- **Logbook**: state and stage changes, errors, commands sent.
 
-**Удобство**
-- **Телефон**: страница перестраивается под узкий экран, ставится на домашний экран как приложение со своей иконкой.
-- **Режим киоска** для планшета на стене или телевизора: камера на весь экран, крупные цифры, экран не гаснет.
-- **Пароль на пульт** (необязательно): смотреть может любой, управлять только после входа.
-- **Автозапуск** при входе в систему, сам перезапускается при сбоях.
-- **Настройка в браузере**: поиск принтера в сети, проверка связи по шагам.
-- **Несколько принтеров**: переключатель в шапке с состоянием каждого, у всех своя камера и журнал, общие история и статистика.
-- **Главный экран** одним нажатием: иконка слева от названия принтера. Кнопка «Назад» в браузере и на мышке тоже всегда возвращает на главный экран.
-- **RU / EN** переключателем в шапке.
+**Convenience**
+- **Phone**: the page adapts to a narrow screen and installs to the home screen as an app with its own icon.
+- **Kiosk mode** for a wall tablet or a TV: full-screen camera, large numbers, the screen stays on.
+- **Console password** (optional): anyone can watch, only signed-in users can control.
+- **Autostart** at login, restarts itself after a crash.
+- **Setup in the browser**: finds printers on the network, tests the connection step by step.
+- **Several printers**: a switcher in the header with each printer's state; each has its own camera and log, history and statistics are shared.
+- **Home screen** in one tap: the icon to the left of the printer name. The browser's and the mouse's Back button also always return to the home screen.
+- **EN / RU** switch in the header. English is the default.
 
 </td>
 </tr>
 </table>
 
-## Установка
+## Installation
 
-**macOS / Linux** (Терминал):
+**macOS / Linux** (Terminal):
 
 ```sh
 git clone https://github.com/sthal/bambu-dash.git && cd bambu-dash
 ./run.sh
 ```
 
-**Windows** (PowerShell или cmd):
+**Windows** (PowerShell or cmd):
 
 ```bat
 git clone https://github.com/sthal/bambu-dash.git && cd bambu-dash
 run.bat
 ```
 
-Сам `git clone` ничего не устанавливает и не запускает: Git этого не позволяет. Всё делает `run.sh` / `run.bat`:
+`git clone` by itself installs and runs nothing: Git does not allow that. `run.sh` / `run.bat` does everything:
 
-- **Проверяет Python 3.9+ и ffmpeg.** Если чего-то нет, печатает точные команды установки для вашей системы и останавливается:
+- **Checks for Python 3.9+ and ffmpeg.** If something is missing, it prints the exact install commands for your system and stops:
 
-  | Система | Команды |
+  | System | Commands |
   |---|---|
-  | macOS | `brew install python ffmpeg`. Если Homebrew нет, скрипт покажет, как его поставить и добавить в PATH, а также путь без Homebrew: скачать ffmpeg одной командой в папку проекта `bin/` |
+  | macOS | `brew install python ffmpeg`. If Homebrew is missing, the script shows how to install it and add it to PATH, and also a way without Homebrew: download ffmpeg with one command into the project's `bin/` folder |
   | Windows | `winget install -e --id Python.Python.3.12`<br>`winget install -e --id Gyan.FFmpeg` |
   | Debian / Ubuntu | `sudo apt install -y python3 python3-venv ffmpeg` |
 
-  После установки запустите скрипт снова. На Windows сначала откройте **новое** окно терминала, чтобы подхватился PATH.
-- **При первом запуске** создаёт `.venv` и ставит зависимости из `requirements.txt` (только `paho-mqtt`).
-- **Запускает сервер.** Дальше откройте `http://localhost:8790`.
+  After installing, run the script again. On Windows, open a **new** terminal window first so the PATH is picked up.
+- **On the first run** it creates `.venv` and installs the dependencies from `requirements.txt` (only `paho-mqtt`).
+- **Starts the server.** Then open `http://localhost:8790`.
 
-Если `git` не установлен: macOS `xcode-select --install`, Windows `winget install -e --id Git.Git`. Можно и без него: скачайте ZIP со страницы репозитория.
+If `git` is not installed: macOS `xcode-select --install`, Windows `winget install -e --id Git.Git`. You can also do without it: download the ZIP from the repository page.
 
-> Проверено на macOS. Windows-скрипты написаны, но на живой Windows ещё не запускались. Если что-то не так, откройте issue.
+> Tested on macOS. The Windows scripts are written but have not yet been run on a real Windows machine. If something is wrong, please open an issue.
 
-### Первая настройка
+### First setup
 
-При первом запуске откроется **страница настройки** (`/setup`):
+On the first run the **setup page** (`/setup`) opens:
 
-1. **«Искать в сети»** находит принтеры Bambu Lab в вашей подсети и сам подставляет IP и серийный номер.
-2. Введите **Access Code**: экран принтера → Настройки → Сеть (WLAN).
-3. **«Проверить связь»** по шагам покажет, что не так: принтер не отвечает, код не подошёл или статус не приходит.
-4. **«Сохранить и подключить»** запишет `config.json` (права `600`) и подключится без перезапуска.
+1. **"Scan network"** finds Bambu Lab printers on your subnet and fills in the IP and serial number.
+2. Enter the **Access Code**: printer screen → Settings → Network (WLAN).
+3. **"Test connection"** shows step by step what is wrong: the printer doesn't answer, the code is wrong, or no status arrives.
+4. **"Save and connect"** writes `config.json` (permissions `600`) and connects without a restart.
 
-Ещё принтеры добавляются там же: «Мои принтеры» → «Добавить принтер». Старый `config.json` с одним принтером переводится в новый формат автоматически.
+More printers are added in the same place: "My printers" → "Add printer". An old single-printer `config.json` is converted to the new format automatically.
 
-Для видео на принтере должна быть включена опция **LAN Mode Liveview**. Потом настройки открываются шестерёнкой в шапке. Там же можно задать пароль на пульт. Порт меняется в настройках или переменной `PORT=8800 ./run.sh`.
+For video, the **LAN Mode Liveview** option must be on at the printer. After that, the settings open from the gear in the header. You can also set a console password there. The port is changed in the settings or with the variable `PORT=8800 ./run.sh`.
 
-### Трансляции
+### Broadcasting
 
-Ключи вводятся в настройках, раздел «Трансляции»; хранятся только в `config.json`. Для **оформления поверх трансляции** нужен ffmpeg с фильтром `drawtext`. Сборка из Homebrew его не содержит, поэтому положите полную сборку в папку проекта (на сервере она подхватится сама):
+Keys are entered in the settings, "Broadcasting" section; they are stored only in `config.json`. The **overlay on the broadcast** needs ffmpeg with the `drawtext` filter. The Homebrew build doesn't include it, so put a full build into the project folder (the server picks it up automatically):
 
 ```sh
 mkdir -p bin && curl -L https://ffmpeg.martin-riedl.de/redirect/latest/macos/$( [ "$(uname -m)" = arm64 ] && echo arm64 || echo amd64 )/release/ffmpeg.zip -o /tmp/ffmpeg.zip && unzip -o /tmp/ffmpeg.zip -d bin && rm /tmp/ffmpeg.zip
 ```
 
-Без неё трансляция идёт чистым видео. YouTube и другие сервисы требуют звуковую дорожку, поэтому в поток добавляется тишина.
+Without it, the broadcast goes out as clean video. YouTube and other services require an audio track, so silence is added to the stream.
 
-### Резервная копия и переезд
+### Backup and moving
 
-Настройки → «Резервная копия»:
+Settings → "Backup":
 
-- **«Скачать бэкап»** — один `.zip`: принтеры, цены, пароль, трансляции, история печатей (с 3D и графиками) и склад катушек. По умолчанию с кодами доступа и ключами трансляций (храните файл как пароль); галочку можно снять.
-- **«Восстановить из файла»** — проверяет файл и целостность базы, сохраняет страховочную копию текущего состояния и перезапускает сервер с восстановленными данными. Если в бэкапе нет кодов, а на этом компьютере они уже есть, они сохраняются.
-- **Автоматические копии** раз в сутки (последние 7) и перед каждым восстановлением (последние 5) лежат в `state/backups/`; любую можно скачать или восстановить кнопкой.
+- **"Download backup"**: a single `.zip` with printers, prices, password, broadcasts, print history (with 3D and charts) and the spool inventory. By default it includes access codes and broadcast keys (keep the file like a password); the checkbox can be cleared.
+- **"Restore from file"**: checks the file and the database integrity, saves a safety copy of the current state and restarts the server with the restored data. If the backup has no codes but this computer already has them, they are kept.
+- **Automatic copies** once a day (last 7) and before every restore (last 5) are kept in `state/backups/`; any of them can be downloaded or restored with a button.
 
-**Переезд на новый компьютер:** установите по инструкции выше, откройте `http://localhost:8790` — на странице настройки сразу нажмите «Восстановить из файла».
+**Moving to a new computer:** install as described above, open `http://localhost:8790` and press "Restore from file" right on the setup page.
 
-### Приложение для iPhone
+### iPhone app
 
-В папке `ios/` — нативное приложение «Mission»: дашборд на весь экран (видео внутри, адрес сервера сохраняется), **Live Activity на экране блокировки и в Dynamic Island** с отсчётом до окончания печати, **виджеты** для домашнего экрана и экрана блокировки (прогресс, время окончания, снимок с камеры), уведомления «готово / сбой / пауза / ошибка».
+The `ios/` folder holds the native "Mission" app: a full-screen dashboard (video inside, the server address is remembered), **Live Activity on the lock screen and in the Dynamic Island** with a countdown to the end of the print, **widgets** for the home and lock screens (progress, finish time, camera snapshot), and "done / failed / paused / error" notifications.
 
-Сборка и установка с бесплатным Apple ID (нужны Xcode из App Store и iPhone с включённым «Режимом разработчика»):
+Building and installing with a free Apple ID (you need Xcode from the App Store and an iPhone with "Developer Mode" on):
 
 ```sh
-cd ios && ./build.sh          # сгенерировать проект (XcodeGen) и открыть в Xcode
-cd ios && ./build.sh install  # собрать и поставить на iPhone, подключённый кабелем
+cd ios && ./build.sh          # generate the project (XcodeGen) and open it in Xcode
+cd ios && ./build.sh install  # build and install on an iPhone connected by cable
 ```
 
-С бесплатной подписью приложение работает 7 дней, потом установите заново той же командой. Ограничения бесплатной подписи: нет push-уведомлений от сервера, поэтому точный процент в Live Activity обновляется, когда приложение открыто или iOS запускает его в фоне (отсчёт и полоса до окончания идут сами); виджет хранит свой адрес дашборда (удерживать → «Изменить виджет»).
+With a free signature the app works for 7 days; then install it again with the same command. Limits of a free signature: no push notifications from the server, so the exact percent in the Live Activity updates when the app is open or iOS runs it in the background (the countdown and the bar to the finish run on their own); the widget keeps its own dashboard address (long-press → "Edit Widget"). The app follows the iPhone's language: Russian on a Russian iPhone, English otherwise.
 
-### Автозапуск
+### Autostart
 
-- **macOS:** `./autostart.sh` (убрать: `./autostart.sh --remove`). Лог пишется в `server.log`. При первом запуске macOS может спросить разрешение для Python на доступ к локальной сети — его нужно дать.
-- **Windows:** `powershell -ExecutionPolicy Bypass -File autostart.ps1` (убрать: добавьте `-Remove`). Пока не проверено на живой Windows.
+- **macOS:** `./autostart.sh` (remove: `./autostart.sh --remove`). The log goes to `server.log`. On the first run macOS may ask to allow Python to access the local network; allow it.
+- **Windows:** `powershell -ExecutionPolicy Bypass -File autostart.ps1` (remove: add `-Remove`). Not yet tested on a real Windows machine.
 
-### Телефон, планшет, телевизор
+### Phone, tablet, TV
 
-- **Телефон**: откройте `http://<IP компьютера>:8790`. На iPhone в Safari: «Поделиться» → «На экран „Домой“».
-- **Киоск**: кнопка с монитором в шапке или адрес `http://<IP компьютера>:8790/?kiosk=1`. Выход: Esc или та же кнопка.
-- **Уведомления браузера** работают только на `localhost` или по HTTPS (ограничение браузеров). С телефона по адресу из домашней сети они не сработают.
-- **Новый формат видео** на iPhone требует iOS 17.1 или новее, иначе включается запасной поток (1280 px, 15 кадров/с).
+- **Phone**: open `http://<computer IP>:8790`. On iPhone in Safari: "Share" → "Add to Home Screen".
+- **Kiosk**: the monitor button in the header or the address `http://<computer IP>:8790/?kiosk=1`. Exit: Esc or the same button.
+- **Browser notifications** work only on `localhost` or over HTTPS (a browser restriction). They won't work from a phone at a home network address.
+- **The newer video format** on iPhone needs iOS 17.1 or later; otherwise the fallback stream is used (1280 px, 15 fps).
 
-## Как устроено
+## How it works
 
-`server.py` — один процесс на Python:
+`server.py` is a single Python process:
 
-| Канал | Порт принтера | Зачем |
+| Channel | Printer port | Purpose |
 |---|---|---|
-| MQTT over TLS | 8883 | статус в реальном времени и команды |
-| RTSPS | 322 | камера: родной H.264 упаковывается во фрагментированный MP4 без перекодирования, один общий `ffmpeg` на всех зрителей, со сторожем от зависаний. Запасной поток: MJPEG |
-| FTPS (implicit) | 990 | `.3mf` текущего задания: превью пластины и `slice_info` |
+| MQTT over TLS | 8883 | real-time status and commands |
+| RTSPS | 322 | camera: the native H.264 is packed into fragmented MP4 without re-encoding, one shared `ffmpeg` for all viewers, with a watchdog against stalls. Fallback stream: MJPEG |
+| FTPS (implicit) | 990 | the current job's `.3mf`: plate preview and `slice_info` |
 
-Браузер получает состояние через SSE (`/events`), видео через `/video.mp4` или `/stream.mjpg`. Все тексты сервер отдаёт сразу на двух языках.
+The browser gets the state over SSE (`/events`) and the video over `/video.mp4` or `/stream.mjpg`. The server sends every text in both languages at once.
 
-На macOS программы, запущенные автозапуском, не могут ходить в локальную сеть без разрешения, а консольному ffmpeg его не выдать. Поэтому ffmpeg подключается к самому серверу на `127.0.0.1`, а сервер пересылает байты принтеру. Шифрование остаётся сквозным: сервер ничего не расшифровывает.
+On macOS, programs started by autostart can't reach the local network without permission, and a console ffmpeg can't be given it. So ffmpeg connects to the server itself on `127.0.0.1`, and the server relays the bytes to the printer. Encryption stays end to end: the server decrypts nothing.
 
-Базу текстов ошибок можно обновить: `python3 tools/update_hms.py`.
+The error text database can be updated: `python3 tools/update_hms.py`.
 
-3D-просмотр строится из G-code внутри `.gcode.3mf` (`toolpath.py`): траектории экструзии упаковываются в ~1 МБ и хранятся в истории. Самой 3D-модели (STL) в нарезанном файле Bambu нет. Для печатей, начатых до записи истории, 3D восстанавливается, пока файл ещё лежит на принтере. 3D-просмотр загружает three.js из CDN, поэтому нужен интернет.
+The 3D view is built from the G-code inside the `.gcode.3mf` (`toolpath.py`): extrusion paths are packed into ~1 MB and kept in the history. The 3D model itself (STL) is not in a Bambu sliced file. For prints started before history recording, the 3D is recovered while the file is still on the printer. The 3D view loads three.js from a CDN, so it needs internet access.
 
-## Безопасность
+## Security
 
-- **Access Code хранится только в `config.json` на вашем компьютере.** Файл в `.gitignore` и в репозиторий не попадает.
-- **API никогда не возвращает код**, только признак «код сохранён».
-- **Сохранённый код не уходит на другой адрес.** Если в настройках меняется IP или серийный номер, код нужно ввести заново, иначе любой в сети мог бы перенаправить сервер на свой адрес и получить код.
-- **Принтером считается только устройство с сертификатом от BBL Technologies**, серийный номер берётся из этого сертификата.
-- **Пароль на пульт** хранится только как хеш (PBKDF2), вход живёт 30 дней в cookie. После 5 неверных попыток вход блокируется на 5 минут. Смена пароля разлогинивает всех. Забыли пароль: удалите строки `password_hash` и `session_secret` из `config.json` и перезапустите сервер.
+- **The Access Code is stored only in `config.json` on your computer.** The file is in `.gitignore` and never gets into the repository.
+- **The API never returns the code**, only a "code saved" flag.
+- **A saved code is never sent to a different address.** If the IP or serial number changes in the settings, the code has to be entered again; otherwise anyone on the network could point the server at their own address and get the code.
+- **Only a device with a certificate from BBL Technologies is treated as a printer**; the serial number is taken from that certificate.
+- **The console password** is stored only as a hash (PBKDF2); a sign-in lasts 30 days in a cookie. After 5 wrong attempts, sign-in is blocked for 5 minutes. Changing the password signs everyone out. Forgot the password: delete the `password_hash` and `session_secret` lines from `config.json` and restart the server.
 
-## Ограничения
+## Limitations
 
-- **Без пароля пульт и настройки открыты всем в локальной сети.** Код при этом не утекает, но поставить печать на паузу может любой. Задайте пароль в настройках.
-- **Температуры, вентиляторы и сушка AMS требуют Developer Mode** на свежих прошивках (проверено на H2S): без него принтер отвечает «mqtt message verify failed» и показывает уведомление HMS 0500_0500_0001_0007. Поэтому эти контролы по умолчанию скрыты: они появляются, только если в настройках принтера отмечено «На принтере включён Developer Mode». Если принтер всё равно откажет, дашборд покажет подсказку и перестанет слать эти команды до нажатия «Попробовать снова». Developer Mode включается на принтере (Настройки → Сеть → LAN Only + Developer Mode), но тогда перестают работать облако Bambu и Handy.
-- **Свет, пауза, пуск, стоп и скорость** принимаются и без Developer Mode.
-- **Мощность 180 Вт** — средняя оценка для H2S. С розеткой-счётчиком цифры будут точнее.
+- **Without a password, the console and settings are open to everyone on the local network.** The code doesn't leak, but anyone can pause a print. Set a password in the settings.
+- **Temperatures, fans and AMS drying need Developer Mode** on recent firmware (tested on H2S): without it the printer answers "mqtt message verify failed" and shows HMS notice 0500_0500_0001_0007. So these controls are hidden by default: they appear only if "Developer Mode is on at the printer" is checked in the printer's settings. If the printer still refuses, the dashboard shows a hint and stops sending these commands until you press "Try again". Developer Mode is turned on at the printer (Settings → Network → LAN Only + Developer Mode), but then the Bambu cloud and Handy stop working.
+- **Light, pause, resume, stop and speed** are accepted without Developer Mode.
+- **180 W** is an average estimate for the H2S. With a metering smart plug the numbers will be more accurate.

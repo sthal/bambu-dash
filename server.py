@@ -1185,17 +1185,17 @@ class Streamer:
         os.makedirs(self.hud_dir, exist_ok=True)
         with self.pr.lock:
             v = self.pr.build_view()
-        stage = v["stage"]["ru"].upper()
-        layer = f" · СЛОЙ {v['layer']}/{v['layers']}" if v["layers"] else ""
+        stage = v["stage"]["en"].upper()
+        layer = f" · LAYER {v['layer']}/{v['layers']}" if v["layers"] else ""
         rem = v["remaining_min"]
-        eta = f" · ОСТАЛОСЬ {int(rem // 60)}Ч {int(rem % 60):02d}М" if rem and v["state"] in ACTIVE else ""
+        eta = f" · REMAINING {int(rem // 60)}H {int(rem % 60):02d}M" if rem and v["state"] in ACTIVE else ""
         n = 40
         filled = round(n * v["pct"] / 100)
         tt = v["temps"]
         f = lambda x: "—" if x is None else f"{x:.0f}°"
         files = {
             "tag.txt": f"LIVE · {v['name']} · MISSION CONTROL",
-            "temps.txt": f"СОПЛО {f(tt['nozzle']['cur'])}   СТОЛ {f(tt['bed']['cur'])}   КАМЕРА {f(tt['chamber']['cur'])}",
+            "temps.txt": f"NOZZLE {f(tt['nozzle']['cur'])}   BED {f(tt['bed']['cur'])}   CHAMBER {f(tt['chamber']['cur'])}",
             "pct.txt": f"{v['pct']}%",
             "task.txt": v["task"] or v["name"],
             "line.txt": f"{stage}{layer}{eta}",
