@@ -21,6 +21,7 @@ import re
 import secrets
 import signal
 import socket
+import sqlite3
 import ssl
 import struct
 import sys
@@ -1298,6 +1299,141 @@ def inventory():
     return {"spools": out}
 
 
+# ---------- backup & restore ----------
+
+BACKUP_DIR = os.path.join(BASE, "state", "backups")
+DB_PATH = os.path.join(BASE, "state", "history.sqlite")
+KEEP = {"auto": 7, "safety": 5}
+
+
+def make_backup(path, secrets=True):
+    """One zip with everything a fresh install needs: manifest, config.json, history.sqlite."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    c = json.loads(json.dumps(cfg))
+    if not secrets:
+        for p in c.get("printers", []):
+            p["access_code"] = ""
+        for t in c.get("stream", {}).get("targets", {}).values():
+            t["key"] = ""
+    with tempfile.TemporaryDirectory() as d:
+        db_copy = os.path.join(d, "history.sqlite")
+        hist_db.snapshot(db_copy)
+        manifest = {"app": "mission-control", "format": 1, "created": time.time(), "secrets": secrets,
+                    "printers": [p.get("name") for p in c.get("printers", [])], "jobs": len(hist_db.recent(100000))}
+        tmp = path + ".part"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # may contain access codes
+        with os.fdopen(fd, "wb") as fh, zipfile.ZipFile(fh, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+            z.writestr("config.json", json.dumps(c, ensure_ascii=False, indent=2))
+            z.write(db_copy, "history.sqlite")
+        os.replace(tmp, path)
+    return manifest
+
+
+def list_backups():
+    if not os.path.isdir(BACKUP_DIR):
+        return []
+    out = []
+    for name in sorted(os.listdir(BACKUP_DIR), reverse=True):
+        if name.endswith(".zip"):
+            st = os.stat(os.path.join(BACKUP_DIR, name))
+            out.append({"name": name, "size": st.st_size, "created": st.st_mtime,
+                        "kind": name.split("-", 1)[0]})
+    return out
+
+
+def prune_backups():
+    for kind, keep in KEEP.items():
+        for b in [b for b in list_backups() if b["kind"] == kind][keep:]:
+            os.remove(os.path.join(BACKUP_DIR, b["name"]))
+
+
+def backup_now(kind):
+    name = f"{kind}-{time.strftime('%Y%m%d-%H%M%S')}.zip"
+    make_backup(os.path.join(BACKUP_DIR, name))
+    prune_backups()
+    return name
+
+
+def auto_backups():
+    """A full backup once a day, the last 7 kept, so a bad change can always be rolled back."""
+    while True:
+        try:
+            autos = [b for b in list_backups() if b["kind"] == "auto"]
+            if not autos or time.time() - autos[0]["created"] > 86400:
+                backup_now("auto")
+        except Exception as e:  # noqa: BLE001 - a failed backup must never take the server down
+            print("auto backup failed:", e, flush=True)
+        time.sleep(3600)
+
+
+def check_backup(path):
+    """(config, manifest) if `path` is a valid backup, else raises ValueError with a reason code."""
+    if not zipfile.is_zipfile(path):
+        raise ValueError("not_zip")
+    with zipfile.ZipFile(path) as z:
+        names = set(z.namelist())
+        if not {"manifest.json", "config.json"} <= names:
+            raise ValueError("not_backup")
+        manifest = json.loads(z.read("manifest.json"))
+        if manifest.get("app") != "mission-control":
+            raise ValueError("not_backup")
+        new_cfg = json.loads(z.read("config.json"))
+        if not isinstance(new_cfg, dict) or not isinstance(new_cfg.get("printers", []), list):
+            raise ValueError("bad_config")
+        if "history.sqlite" in names:
+            with tempfile.TemporaryDirectory() as d:
+                z.extract("history.sqlite", d)
+                db = sqlite3.connect(os.path.join(d, "history.sqlite"))
+                try:
+                    ok = db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+                    has_jobs = db.execute("SELECT 1 FROM sqlite_master WHERE name='jobs'").fetchone()
+                finally:
+                    db.close()
+                if not ok or not has_jobs:
+                    raise ValueError("bad_database")
+    return new_cfg, manifest
+
+
+def restore_backup(path):
+    """Validate, keep a safety copy of the current state, swap config + database, restart."""
+    new_cfg, manifest = check_backup(path)
+    backup_now("safety")
+    # A backup made without secrets must not wipe the codes/keys this machine already knows.
+    known = {p.get("serial"): p.get("access_code") for p in cfg.get("printers", [])}
+    for p in new_cfg.get("printers", []):
+        if not p.get("access_code") and known.get(p.get("serial")):
+            p["access_code"] = known[p.get("serial")]
+    for k, t in (new_cfg.get("stream") or {}).get("targets", {}).items():
+        cur = cfg.get("stream", {}).get("targets", {}).get(k, {})
+        if not t.get("key") and cur.get("key"):
+            t["key"] = cur["key"]
+    new_db = None
+    with zipfile.ZipFile(path) as z:
+        if "history.sqlite" in z.namelist():
+            new_db = DB_PATH + ".restore"
+            with z.open("history.sqlite") as src, open(new_db, "wb") as dst:
+                dst.write(src.read())
+    save_cfg(new_cfg)
+    threading.Thread(target=restart_process, args=(new_db,), daemon=True).start()
+    return manifest
+
+
+def restart_process(new_db=None):
+    """Re-exec the server in place (same PID, so launchd and run.sh are fine) after the reply went out.
+    A restored database is swapped in at the last moment, so nothing touches a closed connection."""
+    time.sleep(0.8)
+    for pr in list(printers.values()):
+        pr.camera._stop(kill=True)
+        pr.h264._stop(kill=True)
+        if pr.streamer.proc is not None:
+            pr.streamer.proc.kill()
+    if new_db:
+        hist_db.close()
+        os.replace(new_db, DB_PATH)
+    os.execv(sys.executable, [sys.executable, os.path.join(BASE, "server.py")])
+
+
 def any_configured():
     return any(pr.configured() for pr in printers.values())
 
@@ -1614,7 +1750,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._static("manifest.webmanifest")
         if path == "/api/session":
             return self._json(200, {"required": auth_required(), "authed": self._authed()})
-        if path in ("/api/config", "/api/discover") and not self._authed():
+        if (path in ("/api/config", "/api/discover", "/api/backups", "/api/backup") or path.startswith("/api/backups/")) \
+                and not self._authed():
             return self._deny()
         if path == "/api/config":
             # Never hand an access code back out, only whether one is stored.
@@ -1626,6 +1763,10 @@ class Handler(BaseHTTPRequestHandler):
                               "has_code": bool(p.get("access_code")), "dev_mode": bool(p.get("dev_mode")),
                               "configured": printers[p["id"]].configured()}
                              for p in cfg["printers"] if p["id"] in printers]})
+        if path == "/api/backups":
+            return self._json(200, {"backups": list_backups()})
+        if path == "/api/backup" or path.startswith("/api/backups/"):
+            return self._download_backup(path)
         if path == "/api/discover":
             return self._json(200, {"printers": discover(), "subnets": [str(n) for n in local_subnets()]})
         if path in ("/api/history", "/api/stats"):
@@ -1684,6 +1825,8 @@ class Handler(BaseHTTPRequestHandler):
     # ----- POST -----
 
     def do_POST(self):
+        if self.path == "/api/restore":
+            return self._restore_upload()
         n = int(self.headers.get("Content-Length") or 0)
         try:
             a = json.loads(self.rfile.read(min(n, 65536)) or b"{}")
@@ -1719,6 +1862,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True})
         if self.path == "/api/printer/delete":
             return self._delete_printer(a)
+        m = re.match(r"^/api/backups/((?:auto|safety|manual)-[\d-]+\.zip)/restore$", self.path)
+        if m:
+            if not self._authed():
+                return self._deny()
+            path = os.path.join(BACKUP_DIR, m.group(1))
+            if not os.path.isfile(path):
+                return self._json(404, {"ok": False, "error": "no_backup"})
+            try:
+                return self._json(200, {"ok": True, "manifest": restore_backup(path)})
+            except ValueError as e:
+                return self._json(400, {"ok": False, "error": str(e)})
         if self.path == "/api/cmd":
             return self._cmd(a)
         if self.path == "/api/test":
@@ -1861,6 +2015,45 @@ class Handler(BaseHTTPRequestHandler):
         for pr in printers.values():
             pr.dirty.set()
         return self._json(200, {"ok": True})
+
+    def _download_backup(self, path):
+        if path == "/api/backup":
+            secrets_on = self._query().get("secrets", "1") != "0"
+            with tempfile.TemporaryDirectory() as d:
+                f = os.path.join(d, "b.zip")
+                make_backup(f, secrets=secrets_on)
+                data = open(f, "rb").read()
+            name = f"mission-control-backup-{time.strftime('%Y-%m-%d')}{'' if secrets_on else '-no-secrets'}.zip"
+        else:
+            name = path.rsplit("/", 1)[1]
+            f = os.path.join(BACKUP_DIR, name)
+            if not re.match(r"^(auto|safety|manual)-[\d-]+\.zip$", name) or not os.path.isfile(f):
+                return self._send(404, b"", "text/plain")
+            data = open(f, "rb").read()
+            name = "mission-control-" + name
+        self._send(200, data, "application/zip", headers=[("Content-Disposition", f'attachment; filename="{name}"')])
+
+    def _restore_upload(self):
+        if not self._authed():
+            return self._deny()
+        n = int(self.headers.get("Content-Length") or 0)
+        if not 0 < n <= 4 * 1024 ** 3:
+            return self._json(400, {"ok": False, "error": "size"})
+        with tempfile.TemporaryDirectory() as d:
+            f = os.path.join(d, "upload.zip")
+            with open(f, "wb") as out:
+                left = n
+                while left:
+                    chunk = self.rfile.read(min(left, 1 << 20))
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    left -= len(chunk)
+            try:
+                manifest = restore_backup(f)
+            except ValueError as e:
+                return self._json(400, {"ok": False, "error": str(e)})
+        self._json(200, {"ok": True, "manifest": manifest})
 
     def _delete_printer(self, a):
         conf = self._conf_for(a)
@@ -2019,6 +2212,7 @@ def main():
     if any(k in json.load(open(CFG_PATH)) for k in PRINTER_KEYS) if os.path.exists(CFG_PATH) else False:
         save_cfg(cfg)  # migrate a single-printer config to the "printers" list on disk
     sync_printers()
+    threading.Thread(target=auto_backups, daemon=True).start()
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     srv.daemon_threads = True
     names = ", ".join(f"{pr.conf['name']} ({pr.conf['host']})" for pr in printers.values()) or "not configured, open /setup"

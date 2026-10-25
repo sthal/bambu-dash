@@ -115,6 +115,17 @@ class History:
         self.db.commit()
         self.lock = threading.Lock()
 
+    def snapshot(self, dest):
+        """Consistent copy of the whole database (SQLite online backup), safe while printing."""
+        out = sqlite3.connect(dest)
+        with self.lock:
+            self.db.backup(out)
+        out.close()
+
+    def close(self):
+        with self.lock:
+            self.db.close()
+
     def open_job(self, serial, job_key):
         with self.lock:
             r = self.db.execute("SELECT id FROM jobs WHERE serial=? AND job_key=? AND ended IS NULL ORDER BY id DESC LIMIT 1",
