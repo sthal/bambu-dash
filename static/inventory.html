@@ -36,6 +36,13 @@ header { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; fle
 h1 { margin: 0; font-size: 20px; }
 header small { display: block; color: var(--dim); font: 500 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; }
 .sp { flex: 1; }
+.nav { display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); }
+.nav a { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 9px; color: var(--dim); text-decoration: none; font: 600 13px var(--sans); white-space: nowrap; transition: .2s; }
+.nav a svg { width: 16px; height: 16px; flex: none; }
+.nav a:hover { color: var(--text); background: rgba(255,255,255,.05); }
+.nav a.on { color: #fff; background: linear-gradient(135deg, rgba(72,224,255,.25), rgba(157,123,255,.3)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+@media (max-width: 760px) { .nav a span { display: none; } .nav a { padding: 7px 10px; } }
+
 .lang { display: inline-flex; padding: 3px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); }
 .lang button { border: 0; background: transparent; color: var(--dim); font: 600 11px var(--mono); padding: 5px 9px; border-radius: 7px; cursor: pointer; }
 .lang button.on { background: linear-gradient(135deg, rgba(72,224,255,.25), rgba(157,123,255,.3)); color: #fff; }
@@ -101,7 +108,7 @@ tr.loaded td { background: rgba(72,224,255,.05); }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 120px); z-index: 20; padding: 12px 18px; border-radius: 14px; visibility: hidden;
   background: var(--panel-hi); border: 1px solid var(--line-hi); backdrop-filter: blur(12px); font-weight: 600; transition: transform .35s, visibility 0s .35s; }
 .toast.show { transform: translate(-50%, 0); visibility: visible; transition-delay: 0s; }
-@media (max-width: 900px) {
+@media (max-width: 1250px) {
   thead { display: none; }
   table, tbody, tr, td { display: block; width: 100%; }
   tr { margin-bottom: 10px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.03); padding: 6px 0; }
@@ -118,9 +125,9 @@ tr.loaded td { background: rgba(72,224,255,.05); }
   <header>
     <a class="logo" href="/" id="home"><svg viewBox="0 0 24 24" fill="none" stroke="#04050d" stroke-width="2.4" stroke-linecap="round"><path d="M4 20h16M7 20V9l5-5 5 5v11M10 14h4"/></svg></a>
     <div><h1 data-i18n="title">Склад катушек</h1><small>Mission Control · Inventory</small></div>
+    <nav class="nav" id="nav"><a href="/" data-nav="dash" class=""><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="3" width="8" height="10" rx="2"/><rect x="13" y="3" width="8" height="6" rx="2"/><rect x="13" y="11" width="8" height="10" rx="2"/><rect x="3" y="15" width="8" height="6" rx="2"/></svg><span data-i18n="navDash">Дашборд</span></a><a href="/inventory" data-nav="inv" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="8" r="4.5"/><circle cx="8" cy="8" r="1.4"/><circle cx="16.5" cy="15.5" r="4.5"/><circle cx="16.5" cy="15.5" r="1.4"/></svg><span data-i18n="navInv">Склад</span></a><a href="/setup" data-nav="set" class=""><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span data-i18n="navSet">Настройки</span></a></nav>
     <div class="sp"></div>
     <div class="lang" id="lang"><button data-lang="ru">RU</button><button data-lang="en">EN</button></div>
-    <a class="back" href="/" data-i18n="back">← Дашборд</a>
   </header>
 
   <div class="tiles" id="tiles"></div>
@@ -156,6 +163,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const I18N = {
   ru: {
+    navDash: "Дашборд", navInv: "Склад", navSet: "Настройки",
     title: "Склад катушек", back: "← Дашборд", fAll: "Все", fLoaded: "В AMS", fShelf: "На полке", fEmpty: "Закончились",
     sRecent: "Недавние", sLeft: "Меньше всего осталось", sMaterial: "По материалу", search: "Поиск: цвет, материал, RFID…", allMats: "Все материалы",
     cSpool: "Катушка", cLeft: "Остаток", cWhere: "Где", cUsed: "Напечатано", cFirst: "Впервые",
@@ -169,6 +177,7 @@ const I18N = {
     copied: "RFID скопирован", saved: "Сохранено", denied: "Нужно войти: изменения на складе защищены паролем пульта",
   },
   en: {
+    navDash: "Dashboard", navInv: "Inventory", navSet: "Settings",
     title: "Filament inventory", back: "← Dashboard", fAll: "All", fLoaded: "In AMS", fShelf: "On the shelf", fEmpty: "Used up",
     sRecent: "Recent", sLeft: "Least left", sMaterial: "By material", search: "Search: color, material, RFID…", allMats: "All materials",
     cSpool: "Spool", cLeft: "Left", cWhere: "Where", cUsed: "Printed", cFirst: "First seen",

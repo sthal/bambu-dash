@@ -70,6 +70,13 @@ a.logo:hover { transform: scale(1.08); box-shadow: 0 0 32px rgba(157,123,255,.75
 @keyframes pulse { 50% { transform: scale(1.5); opacity: .5; } }
 .pill .sub { color: var(--dim); font-weight: 500; }
 .hspace { flex: 1; }
+.nav { display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); }
+.nav a { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 9px; color: var(--dim); text-decoration: none; font: 600 13px var(--sans); white-space: nowrap; transition: .2s; }
+.nav a svg { width: 16px; height: 16px; flex: none; }
+.nav a:hover { color: var(--text); background: rgba(255,255,255,.05); }
+.nav a.on { color: #fff; background: linear-gradient(135deg, rgba(72,224,255,.25), rgba(157,123,255,.3)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+@media (max-width: 760px) { .nav a span { display: none; } .nav a { padding: 7px 10px; } }
+
 .printers { display: flex; gap: 6px; flex-wrap: wrap; }
 .printers button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 10px; cursor: pointer;
   border: 1px solid var(--line); background: var(--panel); color: var(--dim); font: 600 12px var(--sans); }
@@ -423,7 +430,7 @@ a.logo:hover { transform: scale(1.08); box-shadow: 0 0 32px rgba(157,123,255,.75
 body.kiosk .wrap { max-width: none; height: 100vh; display: flex; flex-direction: column; padding: 14px 18px; }
 body.kiosk header { margin-bottom: 12px; }
 body.kiosk header .meta-row > :not(#clock):not(#b-kiosk) { display: none; }
-body.kiosk .printers { display: none; }
+body.kiosk .printers, body.kiosk .nav { display: none; }
 body.kiosk #clock { font-size: 26px; }
 body.kiosk main.grid { flex: 1; min-height: 0; grid-template-columns: 2.3fr 1fr; grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas: "cam mission" "cam thermo"; }
@@ -530,6 +537,7 @@ body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
     </div>
     <div class="pill" id="pill"><span class="dot"></span><span id="pstate" data-i18n="connecting">Подключение…</span><span class="sub" id="pstage"></span></div>
     <div class="printers" id="printers" hidden></div>
+    <nav class="nav" id="nav"><a href="/" data-nav="dash" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="3" width="8" height="10" rx="2"/><rect x="13" y="3" width="8" height="6" rx="2"/><rect x="13" y="11" width="8" height="10" rx="2"/><rect x="3" y="15" width="8" height="6" rx="2"/></svg><span data-i18n="navDash">Дашборд</span></a><a href="/inventory" data-nav="inv" class=""><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="8" r="4.5"/><circle cx="8" cy="8" r="1.4"/><circle cx="16.5" cy="15.5" r="4.5"/><circle cx="16.5" cy="15.5" r="1.4"/></svg><span data-i18n="navInv">Склад</span></a><a href="/setup" data-nav="set" class=""><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span data-i18n="navSet">Настройки</span></a></nav>
     <div class="hspace"></div>
     <div class="meta-row">
       <div class="lang" id="lang" role="group" aria-label="Language"><button data-lang="ru">RU</button><button data-lang="en">EN</button></div>
@@ -538,12 +546,10 @@ body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
       <span class="chip" title="Wi-Fi"><span class="bars" id="wifi"><i style="height:4px"></i><i style="height:7px"></i><i style="height:10px"></i><i style="height:12px"></i></span><b id="wifi-v">—</b></span>
       <span class="onair" id="onair" hidden><i></i><span id="onair-t">LIVE</span></span>
       <span id="clock">--:--</span>
-      <a class="icon-btn" href="/inventory" data-i18n-title="inventory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="8" r="4.5"/><circle cx="8" cy="8" r="1.4"/><circle cx="16.5" cy="15.5" r="4.5"/><circle cx="16.5" cy="15.5" r="1.4"/></svg></a>
       <button class="icon-btn" id="b-kiosk" data-i18n-title="kiosk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></button>
       <button class="icon-btn" id="b-sound" data-i18n-title="sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path class="wave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/><path class="mute" d="M16 9l5 6M21 9l-5 6" hidden/></svg></button>
       <button class="icon-btn" id="b-notify" data-i18n-title="notify"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></button>
       <button class="icon-btn" id="b-lock" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path class="shackle" d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
-      <a class="icon-btn" href="/setup" data-i18n-title="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
     </div>
   </header>
 
@@ -780,6 +786,7 @@ const I18N = {
     chHours: "Часы печати по дням", chMaterials: "Пластик по материалам", kwh: "кВт·ч", kg: "кг", estimated: "≈ начало оценено",
     costTitle: "Стоимость печати", costFil: "пластик", costEnergy: "электричество", costSetPrices: "задайте цены в настройках",
     fcOk: "хватит", fcShort: "не хватит", fcUnknown: "остаток неизвестен", fcLeft: "в катушке", fcNeed: "нужно ещё",
+    navDash: "Дашборд", navInv: "Склад", navSet: "Настройки",
     inventory: "Склад катушек", home: "На главный экран", broadcast: "Трансляция", liveTitle: "Трансляция", liveStart: "Начать трансляцию", liveStop: "Остановить трансляцию", liveHud: "С оформлением дашборда",
     liveHudNo: "Оформление недоступно: нужен ffmpeg с drawtext", liveNone: "Ключи трансляций не заданы.", liveSetup: "Настроить в настройках →",
     liveStarting: "Подключаюсь…", liveOn: "В ЭФИРЕ", livePick: "Выберите хотя бы один сервис",
@@ -823,6 +830,7 @@ const I18N = {
     chHours: "Print hours per day", chMaterials: "Plastic by material", kwh: "kWh", kg: "kg", estimated: "≈ start estimated",
     costTitle: "Print cost", costFil: "plastic", costEnergy: "electricity", costSetPrices: "set prices in settings",
     fcOk: "enough", fcShort: "not enough", fcUnknown: "amount unknown", fcLeft: "on spool", fcNeed: "still needed",
+    navDash: "Dashboard", navInv: "Inventory", navSet: "Settings",
     inventory: "Filament inventory", home: "Back to the main screen", broadcast: "Broadcast", liveTitle: "Broadcast", liveStart: "Start broadcast", liveStop: "Stop broadcast", liveHud: "With the dashboard HUD",
     liveHudNo: "HUD unavailable: needs ffmpeg with drawtext", liveNone: "No stream keys set.", liveSetup: "Set up in settings →",
     liveStarting: "Connecting…", liveOn: "ON AIR", livePick: "Pick at least one service",
@@ -1163,6 +1171,7 @@ function render(s) {
   S = s;
   if (!PID) { PID = s.id; history.replaceState(null, "", pq(location.pathname + location.search.replace(/[?&]p=[^&]*/, ""))); }
   renderSwitcher(s);
+  document.querySelector('#nav [data-nav="set"]').href = "/setup?p=" + encodeURIComponent(s.id);
   if (s.configured === false) { location.href = "/setup"; return; }
   const color = STATE_COLORS[s.state] || "#48e0ff", live = LIVE.has(s.state), active = live || s.state === "PAUSE";
   document.documentElement.style.setProperty("--state", color);

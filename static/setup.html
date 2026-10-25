@@ -27,8 +27,8 @@ body { -webkit-font-smoothing: antialiased; overflow-x: hidden; }
 #stars { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .nebula { position: fixed; inset: -20%; pointer-events: none; filter: blur(60px); opacity: .55;
   background: radial-gradient(40% 35% at 20% 25%, rgba(157,123,255,.28), transparent 70%), radial-gradient(35% 30% at 85% 15%, rgba(72,224,255,.18), transparent 70%), radial-gradient(45% 40% at 70% 90%, rgba(255,95,168,.16), transparent 70%); }
-.wrap { position: relative; max-width: 720px; margin: 0 auto; padding: 22px 16px 48px; }
-header { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; flex-wrap: wrap; }
+.wrap { position: relative; padding: 16px clamp(16px, 1.6vw, 36px) 40px; }  /* same frame as the inventory page */
+header { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
 a.logo { cursor: pointer; transition: transform .2s, box-shadow .2s; }
 a.logo:hover { transform: scale(1.08); box-shadow: 0 0 32px rgba(157,123,255,.75); }
 .logo { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none;
@@ -37,12 +37,19 @@ a.logo:hover { transform: scale(1.08); box-shadow: 0 0 32px rgba(157,123,255,.75
 h1 { margin: 0; font-size: 20px; }
 header small { display: block; color: var(--dim); font: 500 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; }
 .sp { flex: 1; }
+.nav { display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); }
+.nav a { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 9px; color: var(--dim); text-decoration: none; font: 600 13px var(--sans); white-space: nowrap; transition: .2s; }
+.nav a svg { width: 16px; height: 16px; flex: none; }
+.nav a:hover { color: var(--text); background: rgba(255,255,255,.05); }
+.nav a.on { color: #fff; background: linear-gradient(135deg, rgba(72,224,255,.25), rgba(157,123,255,.3)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+@media (max-width: 760px) { .nav a span { display: none; } .nav a { padding: 7px 10px; } }
+
 .lang { display: inline-flex; padding: 3px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); }
 .lang button { border: 0; background: transparent; color: var(--dim); font: 600 11px var(--mono); padding: 5px 9px; border-radius: 7px; cursor: pointer; }
 .lang button.on { background: linear-gradient(135deg, rgba(72,224,255,.25), rgba(157,123,255,.3)); color: #fff; }
 .back { color: var(--dim); font: 500 12px var(--mono); text-decoration: none; padding: 7px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
 .back:hover { color: var(--text); border-color: var(--cyan); }
-.card { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 22px;
+.card { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px;
   backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); margin-bottom: 16px; }
 .card h2 { margin: 0 0 6px; font-size: 17px; display: flex; align-items: center; gap: 10px; }
 .card h2 .n { width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; font: 700 12px var(--mono);
@@ -105,7 +112,7 @@ label.check input { width: auto; }
 .fields.types { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 /* wide screens: two columns, the long form on the right */
 @media (min-width: 1300px) {
-  .wrap { max-width: 1500px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); column-gap: 16px; align-items: start;
+  .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); column-gap: 16px; align-items: start;
     grid-template-areas: "head head" "gate gate" "mine conn" "find conn" "tips conn" ". conn"; }
   .wrap > header { grid-area: head; } #gate { grid-area: gate; } #mine { grid-area: mine; } #find { grid-area: find; }
   #conn { grid-area: conn; } #tips { grid-area: tips; }
@@ -122,9 +129,10 @@ label.check input { width: auto; }
   <header>
     <a class="logo" id="home" href="/" title="Dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="#04050d" stroke-width="2.4" stroke-linecap="round"><path d="M4 20h16M7 20V9l5-5 5 5v11M10 14h4"/></svg></a>
     <div><h1 data-i18n="title">Настройка принтера</h1><small>Mission Control</small></div>
+    <nav class="nav" id="nav"><a href="/" data-nav="dash" class=""><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="3" width="8" height="10" rx="2"/><rect x="13" y="3" width="8" height="6" rx="2"/><rect x="13" y="11" width="8" height="10" rx="2"/><rect x="3" y="15" width="8" height="6" rx="2"/></svg><span data-i18n="navDash">Дашборд</span></a><a href="/inventory" data-nav="inv" class=""><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="8" r="4.5"/><circle cx="8" cy="8" r="1.4"/><circle cx="16.5" cy="15.5" r="4.5"/><circle cx="16.5" cy="15.5" r="1.4"/></svg><span data-i18n="navInv">Склад</span></a><a href="/setup" data-nav="set" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span data-i18n="navSet">Настройки</span></a></nav>
     <div class="sp"></div>
     <div class="lang" id="lang"><button data-lang="ru">RU</button><button data-lang="en">EN</button></div>
-    <a class="back" href="/" id="back" hidden data-i18n="back">← Дашборд</a>
+    <a id="back" hidden></a>
   </header>
 
   <section class="card gate" id="gate" hidden>
@@ -254,6 +262,7 @@ const I18N = {
     stHudNo: "Ваш ffmpeg собран без drawtext, поэтому трансляция пойдёт без оформления. Полная сборка: см. README, раздел «Установка».", e_stream_server: "Адрес сервера трансляции должен начинаться с rtmp:// или rtmps://", e_stream_key: "Ключ трансляции без пробелов",
     devMode: "На принтере включён Developer Mode",
     devModeHint: "Открывает на пульте температуры, вентиляторы и сушку AMS. Без Developer Mode свежие прошивки Bambu отклоняют эти команды. Developer Mode включается на принтере: Настройки → Сеть → LAN Only и Developer Mode; облако Bambu и Handy при этом перестают работать.",
+    navDash: "Дашборд", navInv: "Склад", navSet: "Настройки",
     sMine: "Мои принтеры", addPrinter: "+ Добавить принтер", edit: "Изменить", del: "Удалить", newPrinter: "новый принтер",
     delConfirm: "Удалить принтер «{name}» из дашборда? История печатей останется.", added: "уже добавлен", e_duplicate: "Этот принтер уже добавлен",
     sCost: "Стоимость печати", sCostLead: "Нужно для расчёта стоимости каждой печати и статистики. Пустое поле — не учитывать.",
@@ -291,6 +300,7 @@ const I18N = {
     stHudNo: "Your ffmpeg is built without drawtext, so the broadcast goes without the HUD. Full build: see README, Installation.", e_stream_server: "The stream server must start with rtmp:// or rtmps://", e_stream_key: "Stream key without spaces",
     devMode: "Developer Mode is on at the printer",
     devModeHint: "Shows temperature, fan and AMS drying controls on the console. Recent Bambu firmware rejects these commands without Developer Mode. Turn it on at the printer: Settings → Network → LAN Only and Developer Mode; Bambu cloud and Handy stop working then.",
+    navDash: "Dashboard", navInv: "Inventory", navSet: "Settings",
     sMine: "My printers", addPrinter: "+ Add printer", edit: "Edit", del: "Remove", newPrinter: "new printer",
     delConfirm: "Remove printer \"{name}\" from the dashboard? Its print history stays.", added: "already added", e_duplicate: "This printer is already added",
     sCost: "Print cost", sCostLead: "Used to price each print and for statistics. Leave a field empty to ignore it.",
