@@ -796,14 +796,42 @@ class Printer:
         slot = self._slot_for(f)
         return self._tray(slot) if slot else None
 
-    def note_spools(self):
-        """First sight of an RFID spool: remember how much the AMS says it holds."""
+    def current_use(self, uuid):
+        """Grams the print in progress has already taken from this spool."""
+        if self.raw.get("gcode_state") not in ACTIVE:
+            return 0.0
+        meta, done = self.job.get("meta") or {}, (_num(self.raw.get("mc_percent"), 0) or 0) / 100
+        return sum((f.get("g") or 0) * done for f in meta.get("filaments") or []
+                   if (self._tray_for(f) or {}).get("tray_uuid") == uuid)
+
+    def loaded_spools(self):
+        """RFID spools currently in this printer's AMS units: uuid -> (tray, unit id, slot)."""
+        out = {}
         for u in self.raw.get("ams", {}).get("ams") or []:
             for t in u.get("tray") or []:
-                uuid, remain = t.get("tray_uuid"), t.get("remain")
-                if _real_uuid(uuid) and isinstance(remain, int) and remain >= 0 and not hist_db.spool(uuid):
-                    grams = (_num(t.get("tray_weight"), 0) or 1000) * remain / 100
-                    hist_db.add_spool(uuid, t.get("tray_type"), (t.get("tray_color") or "")[:6], time.time(), grams)
+                if _real_uuid(t.get("tray_uuid")) and t.get("tray_type"):
+                    out[t["tray_uuid"]] = (t, int(u.get("id", 0)), int(t.get("id", 0)))
+        return out
+
+    def note_spools(self):
+        """Inventory: every original (RFID) spool that shows up in an AMS, with where and when it was seen."""
+        now = time.time()
+        seen = self.__dict__.setdefault("_spool_seen", {})
+        for uuid, (t, uid, tid) in self.loaded_spools().items():
+            remain = t.get("remain")
+            if not hist_db.spool(uuid):
+                if not (isinstance(remain, int) and remain >= 0):
+                    continue  # wait until the AMS has an estimate to start the ledger from
+                grams = (_num(t.get("tray_weight"), 0) or 1000) * remain / 100
+                hist_db.add_spool(uuid, t.get("tray_type"), (t.get("tray_color") or "")[:6], now, grams)
+            loc = f"{'AMS HT' if uid >= 128 else f'AMS {uid + 1}'} · {tid + 1}"
+            last = seen.get(uuid)
+            if last and last[0] == loc and now - last[1] < 300:
+                continue  # unchanged: refresh "last seen" every 5 minutes, not every tick
+            seen[uuid] = (loc, now)
+            hist_db.seen_spool(uuid, brand=t.get("tray_sub_brands") or t.get("tray_type"), code=t.get("tray_info_idx"),
+                               tag_uid=t.get("tag_uid"), spool_g=_num(t.get("tray_weight"), 0) or 1000,
+                               serial=self.conf.get("serial"), location=loc, last_seen=now)
 
     def spool_left(self, t):
         """(grams left, the printer's own estimate): the lower of our ledger and the AMS estimate."""
@@ -813,12 +841,7 @@ class Printer:
         sp = hist_db.spool(uuid) if _real_uuid(uuid) else None
         if not sp:
             return printer_left, printer_left
-        used = hist_db.used_from_spool(uuid, sp["first_seen"], exclude_job=self.job.get("db_id"))
-        meta, done = self.job.get("meta") or {}, (_num(self.raw.get("mc_percent"), 0) or 0) / 100
-        if self.raw.get("gcode_state") in ACTIVE:  # what the current print has already taken from this spool
-            used += sum((f.get("g") or 0) * done for f in meta.get("filaments") or []
-                        if (self._tray_for(f) or {}).get("tray_uuid") == uuid)
-        ledger = round(max(0.0, sp["start_g"] - used))
+        ledger = round(hist_db.ledger_left(sp, self.current_use(uuid), exclude_job=self.job.get("db_id")))
         return (min(ledger, printer_left) if printer_left is not None else ledger), printer_left
 
     def track_transitions(self):
@@ -1248,6 +1271,33 @@ def sync_printers():
         printers[pid] = printers.pop(pid)
 
 
+def inventory():
+    """Every original spool ever seen, with our ledger, live location and lifetime usage."""
+    live = {}
+    for pr in printers.values():
+        for uuid, (t, uid, tid) in pr.loaded_spools().items():
+            live[uuid] = (pr, t, uid, tid)
+    out = []
+    for sp in hist_db.spools():
+        uuid = sp["uuid"]
+        here = live.get(uuid)
+        cur = here[0].current_use(uuid) if here else 0.0
+        left = hist_db.ledger_left(sp, cur, exclude_job=here[0].job.get("db_id") if here else None)
+        printer_pct = here[1].get("remain") if here and isinstance(here[1].get("remain"), int) else None
+        used, prints = hist_db.spool_usage(uuid)
+        out.append({
+            "uuid": uuid, "tag_uid": sp.get("tag_uid"), "type": sp.get("type"), "brand": sp.get("brand") or sp.get("type"),
+            "code": sp.get("code"), "color": "#" + (sp.get("color") or "888888"), "spool_g": sp.get("spool_g") or 1000,
+            "left_g": round(left), "printer_pct": printer_pct, "used_g": round(used + cur), "prints": prints,
+            "first_seen": sp.get("first_seen"), "last_seen": time.time() if here else sp.get("last_seen"),
+            "status": "empty" if sp.get("empty_at") else "loaded" if here else "shelf",
+            "location": (f"{here[0].conf['name']} · {'AMS HT' if here[2] >= 128 else f'AMS {here[2] + 1}'} · {here[3] + 1}"
+                         if here else sp.get("location")),
+            "weighed_at": sp.get("adjust_at"), "note": sp.get("note") or "",
+        })
+    return {"spools": out}
+
+
 def any_configured():
     return any(pr.configured() for pr in printers.values())
 
@@ -1551,6 +1601,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._page("index.html")
         if path == "/setup":
             return self._page("setup.html")
+        if path == "/inventory":
+            return self._page("inventory.html")
+        if path == "/api/inventory":
+            return self._json(200, inventory())
+        m = re.match(r"^/api/inventory/([0-9A-Fa-f]{8,64})$", path)
+        if m:
+            return self._json(200, {"jobs": hist_db.spool_jobs(m.group(1))})
         if path.startswith("/static/"):
             return self._static(path[len("/static/"):])
         if path == "/manifest.webmanifest":
@@ -1641,6 +1698,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in ("/api/cmd", "/api/test", "/api/config", "/api/printer/delete", "/api/history/delete") \
                 and not self._authed():
             return self._deny()
+        if self.path == "/api/inventory":
+            if not self._authed():
+                return self._deny()
+            return self._inventory_edit(a)
         if self.path == "/api/stream":
             if not self._authed():
                 return self._deny()
@@ -1775,6 +1836,31 @@ class Handler(BaseHTTPRequestHandler):
         if pw:  # keep the person who just set the password logged in
             headers.append(self._session_cookie(make_token(), SESSION_DAYS * 86400))
         self._json(200, result, headers)
+
+    def _inventory_edit(self, a):
+        uuid, act = str(a.get("uuid") or ""), a.get("action")
+        sp = hist_db.spool(uuid)
+        if not sp:
+            return self._json(404, {"ok": False, "error": "no such spool"})
+        if act == "weigh":
+            g = _num(a.get("grams"))
+            if g is None or not 0 <= g <= 5000:
+                return self._json(400, {"ok": False, "error": "grams"})
+            # from now on: this weight minus whatever gets printed after it
+            hist_db.seen_spool(uuid, adjust_g=g, adjust_at=time.time(), empty_at=None)
+        elif act == "empty":
+            hist_db.seen_spool(uuid, empty_at=time.time())
+        elif act == "restore":
+            hist_db.seen_spool(uuid, empty_at=None)
+        elif act == "note":
+            hist_db.seen_spool(uuid, note=str(a.get("note") or "")[:200])
+        elif act == "delete":
+            hist_db.delete_spool(uuid)
+        else:
+            return self._json(400, {"ok": False, "error": "action"})
+        for pr in printers.values():
+            pr.dirty.set()
+        return self._json(200, {"ok": True})
 
     def _delete_printer(self, a):
         conf = self._conf_for(a)

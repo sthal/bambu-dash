@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#04050d">
+<title>Filament Inventory</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #04050d; --panel: rgba(13, 17, 38, .62); --panel-hi: rgba(22, 28, 60, .78); --line: rgba(130, 160, 255, .16); --line-hi: rgba(130, 170, 255, .38);
+  --text: #e8edff; --dim: #8890b5; --faint: #4b5378;
+  --cyan: #48e0ff; --violet: #9d7bff; --pink: #ff5fa8; --amber: #ffb547; --green: #3dffaa; --red: #ff4d6a;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Space Grotesk", -apple-system, system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); }
+body { -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+#stars { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.nebula { position: fixed; inset: -20%; pointer-events: none; filter: blur(60px); opacity: .55;
+  background: radial-gradient(40% 35% at 20% 25%, rgba(157,123,255,.28), transparent 70%), radial-gradient(35% 30% at 85% 15%, rgba(72,224,255,.18), transparent 70%), radial-gradient(45% 40% at 70% 110%, rgba(255,95,168,.16), transparent 70%); }
+.wrap { position: relative; padding: 16px clamp(16px, 1.6vw, 36px) 40px; }
+header { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
+.logo { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none; cursor: pointer; transition: transform .2s, box-shadow .2s;
+  background: conic-gradient(from 200deg, var(--cyan), var(--violet), var(--pink), var(--cyan)); box-shadow: 0 0 24px rgba(157,123,255,.45); }
+.logo:hover { transform: scale(1.08); box-shadow: 0 0 32px rgba(157,123,255,.75); }
+.logo svg { width: 22px; height: 22px; }
+h1 { margin: 0; font-size: 20px; }
+header small { display: block; color: var(--dim); font: 500 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+.sp { flex: 1; }
+.lang { display: inline-flex; padding: 3px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); }
+.lang button { border: 0; background: transparent; color: var(--dim); font: 600 11px var(--mono); padding: 5px 9px; border-radius: 7px; cursor: pointer; }
+.lang button.on { background: linear-gradient(135deg, rgba(72,224,255,.25), rgba(157,123,255,.3)); color: #fff; }
+.back { color: var(--dim); font: 500 12px var(--mono); text-decoration: none; padding: 7px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.back:hover { color: var(--text); border-color: var(--cyan); }
+.card { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px; backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.tile .k { font: 500 10px var(--mono); color: var(--dim); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 6px; }
+.tile .v { font: 700 28px/1.1 var(--mono); }
+.tile .v small { font-size: 13px; color: var(--dim); font-weight: 500; }
+.mats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.mat { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 11px; border: 1px solid var(--line); background: var(--panel); font: 600 12px var(--mono); }
+.mat b { color: var(--cyan); }
+.bar-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.seg { display: inline-grid; grid-auto-flow: column; gap: 4px; background: rgba(255,255,255,.04); padding: 4px; border-radius: 12px; border: 1px solid var(--line); }
+.seg button { border: 0; background: transparent; color: var(--dim); font: 600 12px var(--sans); padding: 7px 12px; border-radius: 9px; cursor: pointer; }
+.seg button.on { background: linear-gradient(135deg, rgba(72,224,255,.25), rgba(157,123,255,.3)); color: #fff; }
+input.search, select { padding: 9px 12px; border-radius: 11px; border: 1px solid var(--line); background: rgba(4,5,13,.55); color: var(--text); font: 500 13px var(--sans); outline: none; }
+input.search { min-width: 240px; }
+input.search:focus, select:focus { border-color: var(--cyan); }
+table { width: 100%; border-collapse: separate; border-spacing: 0 6px; }
+th { text-align: left; font: 600 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); padding: 4px 12px; white-space: nowrap; }
+td { padding: 10px 12px; background: rgba(255,255,255,.03); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
+td:first-child { border-left: 1px solid var(--line); border-radius: 12px 0 0 12px; }
+td:last-child { border-right: 1px solid var(--line); border-radius: 0 12px 12px 0; }
+tr.empty td { opacity: .45; }
+tr[data-uuid] { cursor: pointer; }
+tr.jobs td { background: rgba(4,5,13,.5); padding: 4px 14px 12px; }
+.jl { display: grid; gap: 6px; padding-top: 6px; }
+.jl a { display: grid; grid-template-columns: minmax(0, 2fr) 1.2fr 1fr 110px; gap: 12px; align-items: center; text-decoration: none; color: var(--text);
+  padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.03); font-size: 13px; }
+.jl a:hover { border-color: var(--cyan); }
+.jl .r { font: 700 10px var(--mono); padding: 3px 8px; border-radius: 7px; justify-self: start; }
+.r.FINISH { background: rgba(61,255,170,.12); color: var(--green); } .r.FAILED { background: rgba(255,77,106,.14); color: #ff8da0; }
+.r.CANCELLED { background: rgba(255,181,71,.12); color: var(--amber); } .r.RUN { background: rgba(72,224,255,.12); color: var(--cyan); }
+tr.loaded td { background: rgba(72,224,255,.05); }
+.spool { display: flex; align-items: center; gap: 12px; }
+.sw { width: 34px; height: 34px; border-radius: 50%; flex: none; position: relative; border: 2px solid rgba(255,255,255,.25); box-shadow: 0 0 14px rgba(0,0,0,.4); }
+.sw::after { content: ""; position: absolute; inset: 11px; border-radius: 50%; background: #0b0e22; border: 1px solid rgba(255,255,255,.3); }
+.spool b { display: block; font-size: 14px; }
+.spool span { font: 500 11px var(--mono); color: var(--dim); }
+.rfid { font: 500 12px var(--mono); color: var(--cyan); cursor: copy; white-space: nowrap; }
+.rfid small { display: block; color: var(--faint); font-size: 10px; margin-top: 2px; }
+.left { min-width: 160px; }
+.left .g { font: 700 15px var(--mono); }
+.left .g small { color: var(--dim); font-weight: 500; font-size: 11px; }
+.track { height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; margin-top: 6px; }
+.track i { display: block; height: 100%; border-radius: 3px; }
+.where { font: 500 12px var(--mono); }
+.where .tag { display: inline-block; padding: 2px 8px; border-radius: 7px; font: 700 10px var(--mono); letter-spacing: .06em; margin-bottom: 3px; }
+.tag.loaded { background: rgba(72,224,255,.14); color: var(--cyan); }
+.tag.shelf { background: rgba(255,255,255,.07); color: var(--dim); }
+.tag.empty { background: rgba(255,77,106,.14); color: #ff8da0; }
+.where span { display: block; color: var(--dim); font-size: 11px; }
+.num { font: 600 13px var(--mono); white-space: nowrap; }
+.num small { color: var(--dim); font-weight: 500; }
+.note { color: var(--amber); font-size: 12px; margin-top: 4px; }
+.acts { display: flex; gap: 6px; justify-content: flex-end; }
+.acts button { border-radius: 9px; border: 1px solid var(--line-hi); background: rgba(255,255,255,.05); color: var(--text); font: 600 12px var(--sans); padding: 6px 9px; cursor: pointer; white-space: nowrap; }
+.acts button:hover { border-color: var(--cyan); }
+.acts button.del:hover { border-color: var(--red); color: #ff8da0; }
+.none { color: var(--dim); padding: 30px 6px; text-align: center; }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 120px); z-index: 20; padding: 12px 18px; border-radius: 14px; visibility: hidden;
+  background: var(--panel-hi); border: 1px solid var(--line-hi); backdrop-filter: blur(12px); font-weight: 600; transition: transform .35s, visibility 0s .35s; }
+.toast.show { transform: translate(-50%, 0); visibility: visible; transition-delay: 0s; }
+@media (max-width: 900px) {
+  thead { display: none; }
+  table, tbody, tr, td { display: block; width: 100%; }
+  tr { margin-bottom: 10px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.03); padding: 6px 0; }
+  td, td:first-child, td:last-child { border: 0; border-radius: 0; background: transparent; padding: 6px 14px; }
+  .acts { justify-content: flex-start; flex-wrap: wrap; }
+  input.search { min-width: 0; flex: 1; }
+}
+</style>
+</head>
+<body>
+<canvas id="stars"></canvas>
+<div class="nebula"></div>
+<div class="wrap">
+  <header>
+    <a class="logo" href="/" id="home"><svg viewBox="0 0 24 24" fill="none" stroke="#04050d" stroke-width="2.4" stroke-linecap="round"><path d="M4 20h16M7 20V9l5-5 5 5v11M10 14h4"/></svg></a>
+    <div><h1 data-i18n="title">Склад катушек</h1><small>Mission Control · Inventory</small></div>
+    <div class="sp"></div>
+    <div class="lang" id="lang"><button data-lang="ru">RU</button><button data-lang="en">EN</button></div>
+    <a class="back" href="/" data-i18n="back">← Дашборд</a>
+  </header>
+
+  <div class="tiles" id="tiles"></div>
+  <div class="mats" id="mats"></div>
+  <div class="bar-row">
+    <div class="seg" id="filter">
+      <button data-f="all" class="on" data-i18n="fAll">Все</button><button data-f="loaded" data-i18n="fLoaded">В AMS</button>
+      <button data-f="shelf" data-i18n="fShelf">На полке</button><button data-f="empty" data-i18n="fEmpty">Закончились</button>
+    </div>
+    <select id="mat"></select>
+    <select id="sort">
+      <option value="recent" data-i18n="sRecent">Недавние</option><option value="left" data-i18n="sLeft">Меньше всего осталось</option>
+      <option value="material" data-i18n="sMaterial">По материалу</option>
+    </select>
+    <input class="search" id="q" type="search" data-i18n-ph="search">
+  </div>
+  <div class="card">
+    <table>
+      <thead><tr>
+        <th data-i18n="cSpool">Катушка</th><th>RFID</th><th data-i18n="cLeft">Остаток</th><th data-i18n="cWhere">Где</th>
+        <th data-i18n="cUsed">Напечатано</th><th data-i18n="cFirst">Впервые</th><th></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="none" id="none" hidden></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const I18N = {
+  ru: {
+    title: "Склад катушек", back: "← Дашборд", fAll: "Все", fLoaded: "В AMS", fShelf: "На полке", fEmpty: "Закончились",
+    sRecent: "Недавние", sLeft: "Меньше всего осталось", sMaterial: "По материалу", search: "Поиск: цвет, материал, RFID…", allMats: "Все материалы",
+    cSpool: "Катушка", cLeft: "Остаток", cWhere: "Где", cUsed: "Напечатано", cFirst: "Впервые",
+    tSpools: "Катушек в наличии", tPlastic: "Пластика всего", tLoaded: "Сейчас в AMS", tEmpty: "Закончились", kg: "кг", g: "г", prints: "печ.",
+    loaded: "В AMS", shelf: "НА ПОЛКЕ", empty: "ЗАКОНЧИЛАСЬ", lastSeen: "видели", weighed: "взвешено",
+    weigh: "⚖ Взвесил", markEmpty: "Закончилась", restore: "Вернуть", note: "✎", del: "🗑",
+    weighAsk: "Сколько пластика осталось на катушке, в граммах? (без веса самой катушки)", noteAsk: "Заметка к катушке:",
+    delAsk: "Удалить катушку из склада? Если она снова появится в AMS, она добавится заново.", printerSays: "принтер считает",
+    none: "Пока пусто. Оригинальные катушки Bambu с RFID-меткой появятся здесь, как только окажутся в AMS.",
+    noJobs: "С этой катушки пока ничего не печатали.", jobsTitle: "Печати с этой катушки", resFINISH: "Готово", resFAILED: "Сбой", resCANCELLED: "Отменено", resRUN: "Печатает",
+    copied: "RFID скопирован", saved: "Сохранено", denied: "Нужно войти: изменения на складе защищены паролем пульта",
+  },
+  en: {
+    title: "Filament inventory", back: "← Dashboard", fAll: "All", fLoaded: "In AMS", fShelf: "On the shelf", fEmpty: "Used up",
+    sRecent: "Recent", sLeft: "Least left", sMaterial: "By material", search: "Search: color, material, RFID…", allMats: "All materials",
+    cSpool: "Spool", cLeft: "Left", cWhere: "Where", cUsed: "Printed", cFirst: "First seen",
+    tSpools: "Spools in stock", tPlastic: "Plastic in total", tLoaded: "In AMS now", tEmpty: "Used up", kg: "kg", g: "g", prints: "prints",
+    loaded: "IN AMS", shelf: "ON SHELF", empty: "USED UP", lastSeen: "seen", weighed: "weighed",
+    weigh: "⚖ Weighed", markEmpty: "Used up", restore: "Restore", note: "✎", del: "🗑",
+    weighAsk: "How much plastic is left on the spool, in grams? (without the spool itself)", noteAsk: "Note for this spool:",
+    delAsk: "Remove the spool from the inventory? If it shows up in an AMS again it is added back.", printerSays: "printer says",
+    none: "Nothing yet. Original Bambu spools with an RFID tag show up here as soon as they are in an AMS.",
+    noJobs: "Nothing printed from this spool yet.", jobsTitle: "Prints from this spool", resFINISH: "Done", resFAILED: "Failed", resCANCELLED: "Cancelled", resRUN: "Printing",
+    copied: "RFID copied", saved: "Saved", denied: "Log in first: inventory changes are protected by the console password",
+  },
+};
+let lang = "ru";
+try { lang = localStorage.getItem("lang") === "en" ? "en" : "ru"; } catch {}
+const t = (k) => I18N[lang][k] ?? I18N.ru[k] ?? k;
+const loc = () => (lang === "ru" ? "ru-RU" : "en-GB");
+let data = [], filter = "all";
+
+function toast(m) { const e = $("toast"); e.textContent = m; e.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove("show"), 2400); }
+const fmtDate = (ts) => (ts ? new Date(ts * 1000).toLocaleDateString(loc(), { day: "numeric", month: "short", year: "numeric" }) : "—");
+const fmtAgo = (ts) => (ts ? new Date(ts * 1000).toLocaleString(loc(), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—");
+const kg = (g) => (g >= 1000 ? `${(g / 1000).toFixed(2)}<small> ${t("kg")}</small>` : `${Math.round(g)}<small> ${t("g")}</small>`);
+const fmtUuid = (u) => (u || "").match(/.{1,4}/g)?.join(" ") || "—";
+
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-i18n]").forEach((e) => (e.textContent = t(e.dataset.i18n)));
+  document.querySelectorAll("[data-i18n-ph]").forEach((e) => (e.placeholder = t(e.dataset.i18nPh)));
+  document.querySelectorAll("#lang button").forEach((b) => b.classList.toggle("on", b.dataset.lang === lang));
+  render();
+}
+$("lang").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; lang = b.dataset.lang; try { localStorage.setItem("lang", lang); } catch {} applyLang(); };
+
+async function load() {
+  try { data = (await (await fetch("/api/inventory")).json()).spools; } catch { return; }
+  const mats = [...new Set(data.map((s) => s.type))].sort(), sel = $("mat"), keep = sel.value;
+  sel.innerHTML = `<option value="">${t("allMats")}</option>` + mats.map((m) => `<option>${esc(m)}</option>`).join("");
+  sel.value = mats.includes(keep) ? keep : "";
+  render();
+}
+
+function render() {
+  const stock = data.filter((s) => s.status !== "empty");
+  const total = stock.reduce((a, s) => a + s.left_g, 0);
+  const tile = (k, v) => `<div class="card tile"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  $("tiles").innerHTML = tile(t("tSpools"), stock.length) + tile(t("tPlastic"), kg(total))
+    + tile(t("tLoaded"), data.filter((s) => s.status === "loaded").length) + tile(t("tEmpty"), data.filter((s) => s.status === "empty").length);
+  const byMat = {};
+  stock.forEach((s) => { const m = (byMat[s.brand] ||= { g: 0, n: 0, colors: [] }); m.g += s.left_g; m.n++; m.colors.push(s.color); });
+  $("mats").innerHTML = Object.entries(byMat).sort((a, b) => b[1].g - a[1].g).map(([name, m]) =>
+    `<span class="mat">${m.colors.slice(0, 6).map((c) => `<i style="width:10px;height:10px;border-radius:50%;background:${esc(c)};border:1px solid rgba(255,255,255,.3);display:inline-block"></i>`).join("")} ${esc(name)} <b>${kg(m.g)}</b> <small style="color:var(--dim)">×${m.n}</small></span>`).join("");
+
+  const q = $("q").value.trim().toLowerCase(), mat = $("mat").value;
+  let list = data.filter((s) => (filter === "all" || s.status === filter) && (!mat || s.type === mat)
+    && (!q || [s.brand, s.type, s.color, s.uuid, s.tag_uid, s.code, s.note, s.location].join(" ").toLowerCase().includes(q)));
+  const sort = $("sort").value;
+  if (sort === "left") list.sort((a, b) => a.left_g - b.left_g);
+  else if (sort === "material") list.sort((a, b) => (a.brand + a.color).localeCompare(b.brand + b.color));
+  $("none").hidden = list.length > 0; $("none").textContent = t("none");
+  $("rows").innerHTML = list.map((s) => {
+    const pct = Math.max(0, Math.min(100, Math.round((s.left_g / (s.spool_g || 1000)) * 100)));
+    const barColor = pct < 15 ? "var(--red)" : pct < 35 ? "var(--amber)" : "linear-gradient(90deg, var(--cyan), var(--violet))";
+    const printer = s.printer_pct != null && Math.abs(s.printer_pct - pct) > 3 ? ` title="${esc(t("printerSays"))} ${s.printer_pct}%"` : "";
+    return `<tr class="${s.status}" data-uuid="${esc(s.uuid)}">
+      <td><div class="spool"><i class="sw" style="background:${esc(s.color)}"></i><div><b>${esc(s.brand)}</b><span>${esc(s.color.toUpperCase())}${s.code ? " · " + esc(s.code) : ""}</span>${s.note ? `<div class="note">${esc(s.note)}</div>` : ""}</div></div></td>
+      <td><div class="rfid" data-copy="${esc(s.uuid)}" title="${esc(s.uuid)}">${esc(fmtUuid(s.uuid))}<small>tag ${esc(s.tag_uid || "—")}</small></div></td>
+      <td class="left"${printer}><div class="g">${kg(s.left_g)} <small>· ${pct}%</small></div><div class="track"><i style="width:${pct}%;background:${barColor}"></i></div>
+        ${s.weighed_at ? `<small style="color:var(--dim);font:500 10px var(--mono)">${t("weighed")} ${esc(fmtDate(s.weighed_at))}</small>` : ""}</td>
+      <td class="where"><span class="tag ${s.status}">${t(s.status)}</span><span>${esc(s.location || "—")}</span>${s.status !== "loaded" ? `<span>${t("lastSeen")} ${esc(fmtAgo(s.last_seen))}</span>` : ""}</td>
+      <td class="num">${kg(s.used_g)}<br><small>${s.prints} ${t("prints")}</small></td>
+      <td class="num"><small>${esc(fmtDate(s.first_seen))}</small></td>
+      <td><div class="acts">
+        <button data-act="weigh">${t("weigh")}</button>
+        ${s.status === "empty" ? `<button data-act="restore">${t("restore")}</button>` : `<button data-act="empty">${t("markEmpty")}</button>`}
+        <button data-act="note" title="${esc(t("noteAsk"))}">${t("note")}</button>
+        <button data-act="delete" class="del" title="${esc(t("delAsk"))}">${t("del")}</button>
+      </div></td></tr>`;
+  }).join("");
+  if (openUuid) { const tr = document.querySelector(`tr[data-uuid="${CSS.escape(openUuid)}"]`); openUuid = null; if (tr) showJobs(tr); }
+}
+
+let openUuid = null;
+async function showJobs(tr) {
+  document.querySelectorAll("tr.jobs").forEach((x) => x.remove());
+  const uuid = tr.dataset.uuid;
+  if (openUuid === uuid) { openUuid = null; return; }
+  openUuid = uuid;
+  const jobs = (await (await fetch(`/api/inventory/${uuid}`)).json()).jobs;
+  const row = document.createElement("tr"); row.className = "jobs";
+  row.innerHTML = `<td colspan="7"><div class="jl">${jobs.length ? jobs.map((j) => `<a href="/?job=${j.id}">
+    <span>${esc(j.task || "—")}</span><span style="color:var(--dim);font:500 12px var(--mono)">${esc(fmtAgo(j.started))}</span>
+    <span class="num">${j.grams != null ? j.grams + " " + t("g") : "≈" + j.planned_g + " " + t("g")}</span>
+    <span class="r ${j.result || "RUN"}">${t("res" + (j.result || "RUN"))}</span></a>`).join("") : `<div class="none" style="padding:10px">${t("noJobs")}</div>`}</div></td>`;
+  tr.after(row);
+}
+$("rows").onclick = async (e) => {
+  const copy = e.target.closest("[data-copy]");
+  if (copy) { try { await navigator.clipboard.writeText(copy.dataset.copy); toast(t("copied")); } catch { toast(copy.dataset.copy); } return; }
+  const b = e.target.closest("button[data-act]");
+  if (!b) { const tr = e.target.closest("tr[data-uuid]"); if (tr && !e.target.closest("tr.jobs")) showJobs(tr); return; }
+  const uuid = b.closest("tr").dataset.uuid, sp = data.find((s) => s.uuid === uuid), act = b.dataset.act;
+  const body = { uuid, action: act };
+  if (act === "weigh") { const v = prompt(t("weighAsk"), Math.round(sp.left_g)); if (v == null) return; body.grams = +String(v).replace(",", "."); }
+  if (act === "note") { const v = prompt(t("noteAsk"), sp.note || ""); if (v == null) return; body.note = v; }
+  if (act === "delete" && !confirm(t("delAsk"))) return;
+  const r = await fetch("/api/inventory", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (r.status === 401) return toast(t("denied"));
+  toast(r.ok ? t("saved") : (await r.json()).error || "error");
+  load();
+};
+$("filter").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; filter = b.dataset.f; document.querySelectorAll("#filter button").forEach((x) => x.classList.toggle("on", x === b)); render(); };
+["mat", "sort"].forEach((id) => ($(id).onchange = render));
+$("q").oninput = render;
+// Back (browser or mouse button) always goes to the main dashboard, like the settings page.
+history.replaceState({ base: true }, "", location.href);
+history.pushState({ inv: true }, "", location.href);
+addEventListener("popstate", () => (location.href = "/"));
+setInterval(load, 30000);
+applyLang(); load();
+
+/* starfield */
+(() => {
+  const c = $("stars"), x = c.getContext("2d"), reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let stars = [], w, h, dpr;
+  function size() { dpr = Math.min(devicePixelRatio || 1, 2); w = c.width = innerWidth * dpr; h = c.height = innerHeight * dpr;
+    stars = Array.from({ length: Math.round((innerWidth * innerHeight) / 3200) }, () => ({ x: Math.random() * w, y: Math.random() * h, z: Math.random() ** 2, p: Math.random() * 6.28 })); }
+  function draw(tm) { x.clearRect(0, 0, w, h);
+    for (const s of stars) { if (!reduce) { s.x -= (0.03 + s.z * 0.25) * dpr; if (s.x < 0) { s.x = w; s.y = Math.random() * h; } }
+      x.fillStyle = `rgba(255,255,255,${0.25 + s.z * 0.75 * (0.65 + 0.35 * Math.sin(tm / 700 + s.p))})`; x.beginPath(); x.arc(s.x, s.y, (0.4 + s.z * 1.4) * dpr, 0, 6.283); x.fill(); }
+    if (!reduce) requestAnimationFrame(draw); }
+  addEventListener("resize", size); size(); requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

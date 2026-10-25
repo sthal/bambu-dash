@@ -105,6 +105,14 @@ class History:
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        # inventory columns added after the first release of the spools table
+        have = {r[1] for r in self.db.execute("PRAGMA table_info(spools)")}
+        for col, kind in (("brand", "TEXT"), ("code", "TEXT"), ("tag_uid", "TEXT"), ("spool_g", "REAL"),
+                          ("last_seen", "REAL"), ("location", "TEXT"), ("serial", "TEXT"), ("empty_at", "REAL"),
+                          ("adjust_g", "REAL"), ("adjust_at", "REAL"), ("note", "TEXT")):
+            if col not in have:
+                self.db.execute(f"ALTER TABLE spools ADD COLUMN {col} {kind}")
+        self.db.commit()
         self.lock = threading.Lock()
 
     def open_job(self, serial, job_key):
@@ -167,6 +175,54 @@ class History:
     def add_spool(self, uuid, type_, color, t, grams):
         with self.lock, self.db:
             self.db.execute("INSERT OR IGNORE INTO spools VALUES(?,?,?,?,?)", (uuid, type_, color, t, grams))
+
+    def seen_spool(self, uuid, **fields):
+        """Refresh what we know about a spool (location, names, last seen)."""
+        cols = ", ".join(f"{k}=?" for k in fields)
+        with self.lock, self.db:
+            self.db.execute(f"UPDATE spools SET {cols} WHERE uuid=?", (*fields.values(), uuid))
+
+    def spools(self):
+        with self.lock:
+            return [dict(r) for r in self.db.execute("SELECT * FROM spools ORDER BY COALESCE(last_seen, first_seen) DESC")]
+
+    def delete_spool(self, uuid):
+        with self.lock, self.db:
+            self.db.execute("DELETE FROM spools WHERE uuid=?", (uuid,))
+
+    def spool_usage(self, uuid):
+        """(grams printed, number of prints) from this spool over its whole life."""
+        with self.lock:
+            rows = self.db.execute("SELECT result, pct, filaments, ended FROM jobs").fetchall()
+        grams, n = 0.0, 0
+        for r in rows:
+            frac = 1.0 if r["result"] == "FINISH" else (r["pct"] or 0) / 100 if r["ended"] else 0
+            hit = [f for f in json.loads(r["filaments"] or "[]") if f.get("tray_uuid") == uuid]
+            if hit:
+                n += 1
+                grams += sum((f.get("g") or 0) * frac for f in hit)
+        return grams, n
+
+    def spool_jobs(self, uuid):
+        """Prints that used this spool, newest first, with grams taken from it."""
+        with self.lock:
+            rows = self.db.execute("SELECT id, task, started, ended, result, pct, filaments FROM jobs ORDER BY started DESC").fetchall()
+        out = []
+        for r in rows:
+            hit = [f for f in json.loads(r["filaments"] or "[]") if f.get("tray_uuid") == uuid]
+            if hit:
+                frac = 1.0 if r["result"] == "FINISH" else (r["pct"] or 0) / 100 if r["ended"] else None
+                g = sum(f.get("g") or 0 for f in hit)
+                out.append({"id": r["id"], "task": r["task"], "started": r["started"], "ended": r["ended"],
+                            "result": r["result"], "grams": round(g * frac, 1) if frac is not None else None, "planned_g": round(g, 1)})
+        return out
+
+    def ledger_left(self, sp, current_used=0.0, exclude_job=None):
+        """Grams left by our own accounting: the last manual weighing (or first sight) minus prints since."""
+        if sp.get("empty_at"):
+            return 0.0
+        base, since = (sp["adjust_g"], sp["adjust_at"]) if sp.get("adjust_at") else (sp["start_g"], sp["first_seen"])
+        return max(0.0, base - self.used_from_spool(sp["uuid"], since, exclude_job) - current_used)
 
     def used_from_spool(self, uuid, since, exclude_job=None):
         """Grams printed from this spool by finished prints started after `since` (failed ones pro rata)."""
