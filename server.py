@@ -1434,6 +1434,17 @@ def restart_process(new_db=None):
     os.execv(sys.executable, [sys.executable, os.path.join(BASE, "server.py")])
 
 
+def status_summary(pr):
+    """Small status for the iPhone app, widget and Live Activity (no video, no history)."""
+    with pr.lock:
+        v = pr.build_view()
+    return {"id": v["id"], "name": v["name"], "online": v["online"], "state": v["state"], "state_txt": v["state_txt"],
+            "stage": v["stage"], "pct": v["pct"], "layer": v["layer"], "layers": v["layers"], "task": v["task"],
+            "remaining_min": v["remaining_min"], "eta": v["eta"], "started_at": v["job"]["started_at"],
+            "temps": {k: t["cur"] for k, t in v["temps"].items()},
+            "error": bool(v["errors"]["print"] or v["errors"]["hms"])}
+
+
 def any_configured():
     return any(pr.configured() for pr in printers.values())
 
@@ -1748,6 +1759,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._static(path[len("/static/"):])
         if path == "/manifest.webmanifest":
             return self._static("manifest.webmanifest")
+        if path == "/api/status":
+            return self._json(200, {"printers": [status_summary(pr) for pr in list(printers.values())]})
         if path == "/api/session":
             return self._json(200, {"required": auth_required(), "authed": self._authed()})
         if (path in ("/api/config", "/api/discover", "/api/backups", "/api/backup") or path.startswith("/api/backups/")) \

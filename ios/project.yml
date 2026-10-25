@@ -1,0 +1,60 @@
+# XcodeGen spec: `./build.sh` generates MissionControl.xcodeproj from this file.
+name: MissionControl
+options:
+  bundleIdPrefix: com.sthal
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    # Your (free) Apple ID team: build.sh fills it in, or pick it in Xcode → Signing & Capabilities.
+    DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}
+    SWIFT_VERSION: "5.9"
+targets:
+  MissionControl:
+    type: application
+    platform: iOS
+    sources: [MissionControl, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sthal.missioncontrol
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+    info:
+      path: MissionControl/Info.plist
+      properties:
+        CFBundleDisplayName: Mission
+        UILaunchScreen:
+          UIColorName: AccentColor
+        UIUserInterfaceStyle: Dark
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        NSSupportsLiveActivities: true
+        NSLocalNetworkUsageDescription: "Mission Control connects to the printer dashboard on your home network."
+        # The dashboard is plain http on the LAN or over your VPN.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers: [com.sthal.missioncontrol.refresh]
+    dependencies:
+      - target: MissionWidgets
+  MissionWidgets:
+    type: app-extension
+    platform: iOS
+    sources: [MissionWidgets, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sthal.missioncontrol.widgets
+    info:
+      path: MissionWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Mission
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
