@@ -185,7 +185,7 @@ class History:
 
     def add_spool(self, uuid, type_, color, t, grams):
         with self.lock, self.db:
-            self.db.execute("INSERT OR IGNORE INTO spools VALUES(?,?,?,?,?)", (uuid, type_, color, t, grams))
+            self.db.execute("INSERT OR IGNORE INTO spools(uuid, type, color, first_seen, start_g) VALUES(?,?,?,?,?)", (uuid, type_, color, t, grams))
 
     def seen_spool(self, uuid, **fields):
         """Refresh what we know about a spool (location, names, last seen)."""

@@ -988,7 +988,10 @@ class Printer:
             time.sleep(5)
             n += 1
             with self.lock:
-                self.note_spools()
+                try:
+                    self.note_spools()
+                except Exception as e:  # inventory trouble must never stop history sampling
+                    print("spool tracking failed:", e, flush=True)
                 v = self.build_view()
             t = v["temps"]
             self.hist.append([round(time.time()), t["nozzle"]["cur"], t["bed"]["cur"], t["chamber"]["cur"], v["pct"]])
