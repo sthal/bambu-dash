@@ -821,9 +821,10 @@ class Printer:
         for uuid, (t, uid, tid) in self.loaded_spools().items():
             remain = t.get("remain")
             if not hist_db.spool(uuid):
-                if not (isinstance(remain, int) and remain >= 0):
-                    continue  # wait until the AMS has an estimate to start the ledger from
-                grams = (_num(t.get("tray_weight"), 0) or 1000) * remain / 100
+                # Start from the AMS estimate; with "Update remaining filament" off (remain = -1) assume a full
+                # spool, the user can correct it by weighing.
+                full = _num(t.get("tray_weight"), 0) or 1000
+                grams = full * remain / 100 if isinstance(remain, int) and remain >= 0 else full
                 hist_db.add_spool(uuid, t.get("tray_type"), (t.get("tray_color") or "")[:6], now, grams)
             loc = f"{'AMS HT' if uid >= 128 else f'AMS {uid + 1}'} · {tid + 1}"
             last = seen.get(uuid)
