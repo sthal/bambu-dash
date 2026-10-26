@@ -1,0 +1,12 @@
+.git
+.venv
+bin
+state
+data
+config.json
+server.log
+ios
+docs
+__pycache__
+*.pyc
+.DS_Store

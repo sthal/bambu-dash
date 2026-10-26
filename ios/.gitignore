@@ -1,2 +1,4 @@
 MissionControl.xcodeproj/
 build/
+MissionControl/Info.plist
+MissionWidgets/Info.plist

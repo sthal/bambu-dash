@@ -6,3 +6,4 @@ bin/
 __pycache__/
 .DS_Store
 state/
+data/

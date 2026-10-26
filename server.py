@@ -40,7 +40,8 @@ import toolpath
 from history import DEFAULT_COSTS, History, job_costs
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-CFG_PATH = os.path.join(BASE, "config.json")
+DATA = os.environ.get("MC_DATA") or BASE  # config.json and state/; a volume in Docker
+CFG_PATH = os.path.join(DATA, "config.json")
 DEFAULTS = {"port": 8790, "password_hash": "", "session_secret": "", "printers": []}
 STREAM_SERVICES = {  # default ingest servers; the stream key is appended
     "youtube": "rtmp://a.rtmp.youtube.com/live2",
@@ -88,7 +89,7 @@ def save_cfg(c):
 
 cfg = load_cfg()
 cfg_lock = threading.Lock()
-hist_db = History(os.path.join(BASE, "state", "history.sqlite"))
+hist_db = History(os.path.join(DATA, "state", "history.sqlite"))
 PORT = int(os.environ.get("PORT") or cfg.get("port") or 8790)
 
 try:
@@ -109,7 +110,7 @@ def error_text(code_hex):
 
 # Prefer a standalone ffmpeg dropped into ./bin (the no-Homebrew route), else whatever is on PATH.
 _local_ff = os.path.join(BASE, "bin", "ffmpeg.exe" if os.name == "nt" else "ffmpeg")
-FFMPEG = _local_ff if os.path.exists(_local_ff) else "ffmpeg"
+FFMPEG = os.environ.get("MC_FFMPEG") or (_local_ff if os.path.exists(_local_ff) else "ffmpeg")  # MC_FFMPEG: the Mac app
 # The printer's certificate is self-signed; ffmpeg 9+ verifies TLS by default and would refuse it.
 # -timeout (µs) makes ffmpeg give up when the printer silently stops sending, instead of hanging forever.
 FF_IN = ["-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-tls_verify", "0", "-timeout", "10000000"]
@@ -1114,7 +1115,7 @@ class Streamer:
         self.pr = pr
         self.proc, self.want, self.targets, self.overlay = None, False, [], False
         self.since, self.error, self.fps, self.kbps = None, None, None, None
-        self.hud_dir = os.path.join(BASE, "state", f"hud-{pr.id}")
+        self.hud_dir = os.path.join(DATA, "state", f"hud-{pr.id}")
         threading.Thread(target=self._watch, daemon=True).start()
 
     def status(self):
@@ -1305,8 +1306,8 @@ def inventory():
 
 # ---------- backup & restore ----------
 
-BACKUP_DIR = os.path.join(BASE, "state", "backups")
-DB_PATH = os.path.join(BASE, "state", "history.sqlite")
+BACKUP_DIR = os.path.join(DATA, "state", "backups")
+DB_PATH = os.path.join(DATA, "state", "history.sqlite")
 KEEP = {"auto": 7, "safety": 5}
 
 

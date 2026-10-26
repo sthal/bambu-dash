@@ -1,0 +1,11 @@
+# docker compose up -d   → http://<host>:8790
+# Settings, history and backups live in ./data (config.json, state/).
+services:
+  mission-control:
+    build: .
+    image: mission-control
+    container_name: mission-control
+    restart: unless-stopped
+    network_mode: host   # reaches the printer directly and lets printer discovery broadcast on the LAN
+    volumes:
+      - ./data:/data

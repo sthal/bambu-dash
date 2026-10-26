@@ -90,6 +90,26 @@ If `git` is not installed: macOS `xcode-select --install`, Windows `winget insta
 
 > Tested on macOS. The Windows scripts are written but have not yet been run on a real Windows machine. If something is wrong, please open an issue.
 
+### Mac app (DMG)
+
+A menu bar app with everything inside (Python, ffmpeg, the server): no Homebrew, Git or Terminal needed. Apple Silicon and Intel, macOS 13 or later.
+
+- **Build:** `macos/build-dmg.sh` (needs Xcode or the Command Line Tools) → `macos/build/MissionControl.dmg`.
+- **Install:** open the DMG and drag Mission Control to Applications. The app is not notarized, so on the first launch (and after each update) macOS asks to confirm it: System Settings → Privacy & Security → "Open Anyway". Allow local network access when asked.
+- **What it does:** starts the server and keeps it running, and on the first launch turns on "Launch at login" (can be turned off in the menu). While a print runs, it keeps the Mac from idle-sleeping (the display still turns off). The menu shows the print status and opens the dashboard, inventory, settings, data folder and log.
+- **Data:** `~/Library/Application Support/Mission Control` (`config.json` and `state/`). Replacing the app with a newer one keeps it.
+- Don't run the app and `run.sh` / `autostart.sh` on the same Mac at the same time: both want port 8790.
+
+### Docker (Raspberry Pi, a server)
+
+```sh
+docker compose up -d
+```
+
+Then open `http://<host IP>:8790`. The container uses the host network (so it reaches the printer and discovery works), settings and history live in `./data`. Works on amd64 and arm64 (Raspberry Pi 5). The host must be on the printer's network, or reach it over a VPN (then enter the printer's IP by hand: discovery doesn't cross a VPN).
+
+On a Raspberry Pi the video in the browser is passed through without re-encoding and costs almost nothing. A broadcast with the HUD overlay re-encodes the video on the CPU, which is at the limit of a Pi 5 at 1080p.
+
 ### First setup
 
 On the first run the **setup page** (`/setup`) opens:
