@@ -263,6 +263,7 @@ a.logo:hover { transform: scale(1.08); box-shadow: 0 0 32px rgba(157,123,255,.75
 .rp-money { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .rp-money .tile:last-child { border-color: rgba(72,224,255,.4); box-shadow: 0 0 20px rgba(72,224,255,.12); }
 .rp-charts { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; margin-top: 16px; }
+#rp-power { grid-column: 1 / -1; }
 .lc { position: relative; }
 .lc svg { width: 100%; height: 220px; display: block; overflow: visible; }
 .lc .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; font: 500 11px var(--mono); color: var(--dim); }
@@ -280,6 +281,7 @@ a.logo:hover { transform: scale(1.08); box-shadow: 0 0 32px rgba(157,123,255,.75
 
 /* temps */
 .temps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.temps.plug { grid-template-columns: repeat(4, 1fr); }
 .gauge { background: rgba(255,255,255,.03); border: 1px solid var(--line); border-radius: 16px; padding: 14px 14px 10px; position: relative; }
 .gauge .head { display: flex; justify-content: space-between; align-items: center; font: 600 11px var(--mono); letter-spacing: .14em; color: var(--dim); text-transform: uppercase; }
 .gauge .dial { position: relative; height: 130px; margin-top: 4px; }
@@ -514,7 +516,7 @@ body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
   .ring { width: 170px; height: 170px; }
   .ring .pct { font-size: 42px; }
   .alt { height: 170px; }
-  .temps { grid-template-columns: 1fr; }
+  .temps, .temps.plug { grid-template-columns: 1fr; }
   .model { flex-direction: column; }
   .thumb { width: 100%; height: 180px; }
   .meta-row .chip.opt { display: none; }
@@ -724,6 +726,7 @@ body.kiosk #b-kiosk { border-color: var(--cyan); color: var(--cyan); }
   <div class="rp-charts">
     <div class="chart lc" id="rp-temps"></div>
     <div class="chart lc" id="rp-prog"></div>
+    <div class="chart lc" id="rp-power" hidden></div>
   </div>
   <div class="card rp-events"><h2 data-i18n="hLog">Бортжурнал</h2><ul class="events" id="rp-events"></ul></div>
 </div></div>
@@ -759,6 +762,7 @@ const I18N = {
     light: "Свет", pause: "Пауза", resume: "Пуск", stop: "Стоп", stopHint: "«Стоп» — удерживать 2 секунды",
     h: "ч", m: "м", g: "г", meters: "м", target: "цель", off: "выкл", holding: "держит", heating: "нагрев", cooling: "остывает",
     nozzle: "Сопло", bed: "Стол", chamber: "Камера", nozzleChip: "сопло",
+    power: "Мощность", watt: "Вт", thisPrint: "за печать", plugNow: "розетка Shelly", plugOff: "нет связи", plugOn: "в сети", rpPower: "Потребление, Вт",
     fanPart: "Обдув", fanAux: "Боковой", fanChamber: "Камера", fanHeatbreak: "Хотэнд",
     spaghetti: "Спагетти-детектор", firstLayer: "Первый слой", autostop: "автостоп",
     aiOn: "AI-страж активен", aiOff: "AI-страж выкл",
@@ -803,6 +807,7 @@ const I18N = {
     light: "Light", pause: "Pause", resume: "Resume", stop: "Stop", stopHint: "Hold “Stop” for 2 seconds",
     h: "h", m: "m", g: "g", meters: "m", target: "target", off: "off", holding: "holding", heating: "heating", cooling: "cooling",
     nozzle: "Nozzle", bed: "Bed", chamber: "Chamber", nozzleChip: "nozzle",
+    power: "Power", watt: "W", thisPrint: "this print", plugNow: "Shelly plug", plugOff: "offline", plugOn: "on", rpPower: "Power draw, W",
     fanPart: "Part", fanAux: "Aux", fanChamber: "Chamber", fanHeatbreak: "Hotend",
     spaghetti: "Spaghetti detector", firstLayer: "First layer", autostop: "auto-stop",
     aiOn: "AI guard active", aiOff: "AI guard off",
@@ -1030,6 +1035,7 @@ const GAUGES = [
   { key: "nozzle", max: 320 },
   { key: "bed", max: 120 },
   { key: "chamber", max: 65 },
+  { key: "power", max: 1300 },  // smart plug, W; shown only when one is set up
 ];
 const ARC_R = 58, ARC_LEN = Math.PI * 2 * ARC_R * 0.75;
 function arcPath() {
@@ -1048,7 +1054,7 @@ function heatColor(f) {
 }
 function buildGauges() {
   $("temps").innerHTML = GAUGES.map((g) => `
-    <div class="gauge" id="g-${g.key}">
+    <div class="gauge" id="g-${g.key}"${g.key === "power" ? " hidden" : ""}>
       <div class="head"><span data-i18n="${g.key}">${t(g.key)}</span><span class="badge idle" id="g-${g.key}-b">—</span></div>
       <div class="dial">
         <svg viewBox="0 0 160 130">
@@ -1079,7 +1085,20 @@ function sparkline(svg, vals, color) {
     <path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke"/>`;
 }
 function renderTemps(s) {
+  const pw = s.power;
+  $("temps").classList.toggle("plug", !!pw); $("g-power").hidden = !pw;
+  if (pw) {
+    const w = pw.w, f = w == null ? 0 : Math.min(w / 1300, 1), col = heatColor(f);
+    const a = $("g-power-a");
+    a.style.strokeDashoffset = ARC_LEN * (1 - f); a.style.stroke = col; a.style.filter = `drop-shadow(0 0 6px ${col})`;
+    $("g-power-c").innerHTML = w == null ? "—" : `${n0(w)}<small>${t("watt")}</small>`;
+    $("g-power-tt").textContent = pw.job_kwh != null ? `${t("thisPrint")} ${pw.job_kwh.toFixed(2)} ${t("kwh")}` : t("plugNow");
+    const b = $("g-power-b");
+    b.className = "badge " + (!pw.ok ? "idle" : w > 300 ? "heat" : "hold"); b.textContent = !pw.ok ? t("plugOff") : w > 300 ? t("heating") : t("plugOn");
+    sparkline($("g-power-s"), (s.hist || []).map((h) => h[5] ?? null), col);
+  }
   GAUGES.forEach((g, gi) => {
+    if (g.key === "power") return;
     const tm = s.temps[g.key] || {}, cur = tm.cur, tgt = tm.tgt;
     const f = cur == null ? 0 : Math.min(cur / g.max, 1);
     const col = heatColor(f);
@@ -1754,6 +1773,10 @@ function renderReport() {
     { name: t("chamber"), color: SERIES_COLORS.chamber, pts: smp.map((x) => [x[0], x[3]]) }], "°") : `<div class="empty-h">${t("noSamples")}</div>`);
   $("rp-prog").innerHTML = `<h3>${t("rpProgress")}</h3>` + (smp.length > 1 ? lineChart([
     { name: t("rpProgress"), color: "#48e0ff", pts: smp.map((x) => [x[0], x[4]]), area: true }], "%", 0, 100) : `<div class="empty-h">${t("noSamples")}</div>`);
+  const pws = smp.filter((x) => x[6] != null);
+  $("rp-power").hidden = pws.length < 2;
+  $("rp-power").innerHTML = pws.length < 2 ? "" : `<h3>${t("rpPower")}</h3>` + lineChart([
+    { name: t("power"), color: "#ffb547", pts: smp.map((x) => [x[0], x[6]]), area: true }], " " + t("watt"), 0);
   $("rp-events").innerHTML = (d.events || []).map((e) => `<li class="${esc(e.kind)}"><time>${new Date(e.t * 1000).toLocaleTimeString(loc())}</time>${esc(tx(e.text))}</li>`).join("") || `<li><time>—</time>${t("quiet")}</li>`;
   document.querySelectorAll("#rp-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.v === rp.view));
 }

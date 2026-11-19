@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS jobs_started ON jobs(started);
 CREATE TABLE IF NOT EXISTS job_samples (job_id INTEGER NOT NULL, t REAL, nozzle REAL, bed REAL, chamber REAL, pct INTEGER, layer INTEGER);
+-- job_samples.power (W from a smart plug) and jobs.meas_* are added by migration in History.__init__
 CREATE INDEX IF NOT EXISTS job_samples_job ON job_samples(job_id);
 CREATE TABLE IF NOT EXISTS job_events (job_id INTEGER NOT NULL, t REAL, kind TEXT, text TEXT);
 CREATE INDEX IF NOT EXISTS job_events_job ON job_events(job_id);
@@ -56,6 +57,18 @@ def _minutes(hhmm):
     return int(h) * 60 + int(m)
 
 
+def _is_night(minute, nf, nt):
+    return (nf <= minute < nt) if nf < nt else (minute >= nf or minute < nt)
+
+
+def price_at(costs, t):
+    """Price per kWh at moment t (day or night tariff); None when no price is set."""
+    lt = datetime.datetime.fromtimestamp(t)
+    night = _is_night(lt.hour * 60 + lt.minute, _minutes(costs.get("night_from") or "22:00"), _minutes(costs.get("night_to") or "06:00"))
+    dp, np_ = costs.get("day_price"), costs.get("night_price")
+    return (np_ if np_ is not None else dp) if night else dp
+
+
 def split_day_night(start, end, night_from, night_to):
     """Seconds of [start, end) that fall into the day and the night tariff windows (local time)."""
     nf, nt = _minutes(night_from), _minutes(night_to)
@@ -64,7 +77,7 @@ def split_day_night(start, end, night_from, night_to):
     while t < end:
         lt = datetime.datetime.fromtimestamp(t)
         minute = lt.hour * 60 + lt.minute
-        is_night = (nf <= minute < nt) if nf < nt else (minute >= nf or minute < nt)
+        is_night = _is_night(minute, nf, nt)
         # step to the next minute boundary (or the end), so a long print costs a few thousand steps at most
         nxt = min(end, t + 60 - lt.second - lt.microsecond / 1e6)
         if is_night:
@@ -99,6 +112,22 @@ def job_costs(costs, filaments, frac, start, end):
     return fil, kwh, cost_e
 
 
+def measured_energy(costs, rec, start, end):
+    """(kWh, cost) from the smart plug readings of a print; time the plug did not cover is filled in
+    with the power_w estimate. None when the plug measured nothing."""
+    if not rec.get("meas_s"):
+        return None
+    kwh, cost = rec.get("meas_kwh") or 0.0, rec.get("meas_cost")
+    missing = max(0.0, (end - start) - rec["meas_s"])
+    if missing > 60 and costs.get("power_w"):
+        extra = costs["power_w"] / 1000 * missing / 3600
+        kwh += extra
+        price = price_at(costs, end)
+        if cost is not None and price is not None:
+            cost += extra * price
+    return round(kwh, 3), (round(cost, 2) if cost is not None else None)
+
+
 class History:
     def __init__(self, path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -112,6 +141,13 @@ class History:
                           ("adjust_g", "REAL"), ("adjust_at", "REAL"), ("note", "TEXT")):
             if col not in have:
                 self.db.execute(f"ALTER TABLE spools ADD COLUMN {col} {kind}")
+        # smart plug: measured energy of a print (meas_s = seconds the plug covered) and power per sample
+        have = {r[1] for r in self.db.execute("PRAGMA table_info(jobs)")}
+        for col in ("meas_kwh", "meas_cost", "meas_s"):
+            if col not in have:
+                self.db.execute(f"ALTER TABLE jobs ADD COLUMN {col} REAL")
+        if "power" not in {r[1] for r in self.db.execute("PRAGMA table_info(job_samples)")}:
+            self.db.execute("ALTER TABLE job_samples ADD COLUMN power REAL")
         self.db.commit()
         self.lock = threading.Lock()
 
@@ -161,9 +197,10 @@ class History:
                 self.db.execute(f"DELETE FROM {table} WHERE job_id=?", (job_id,))
             self.db.execute("DELETE FROM jobs WHERE id=?", (job_id,))
 
-    def add_sample(self, job_id, t, nozzle, bed, chamber, pct, layer):
+    def add_sample(self, job_id, t, nozzle, bed, chamber, pct, layer, power=None):
         with self.lock, self.db:
-            self.db.execute("INSERT INTO job_samples VALUES(?,?,?,?,?,?,?)", (job_id, t, nozzle, bed, chamber, pct, layer))
+            self.db.execute("INSERT INTO job_samples(job_id, t, nozzle, bed, chamber, pct, layer, power) VALUES(?,?,?,?,?,?,?,?)",
+                            (job_id, t, nozzle, bed, chamber, pct, layer, power))
 
     def add_event(self, job_id, t, kind, text):
         with self.lock, self.db:
@@ -259,7 +296,7 @@ class History:
             rec = {k: r[k] for k in r.keys() if k not in ("thumb", "snapshot")}
             rec["has_thumb"], rec["has_snapshot"] = r["thumb"] is not None, r["snapshot"] is not None
             rec["samples"] = [list(x) for x in self.db.execute(
-                "SELECT t, nozzle, bed, chamber, pct, layer FROM job_samples WHERE job_id=? ORDER BY t", (job_id,))]
+                "SELECT t, nozzle, bed, chamber, pct, layer, power FROM job_samples WHERE job_id=? ORDER BY t", (job_id,))]
             rec["events"] = [{"t": e[0], "kind": e[1], "text": json.loads(e[2])} for e in self.db.execute(
                 "SELECT t, kind, text FROM job_events WHERE job_id=? ORDER BY t", (job_id,))]
             rec["has_toolpath"] = self.db.execute("SELECT 1 FROM job_toolpath WHERE job_id=?", (job_id,)).fetchone() is not None

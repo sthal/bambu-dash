@@ -32,12 +32,13 @@ import time
 import zipfile
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import urllib.request
 from urllib.parse import parse_qs
 
 import paho.mqtt.client as mqtt
 
 import toolpath
-from history import DEFAULT_COSTS, History, job_costs
+from history import DEFAULT_COSTS, History, job_costs, measured_energy, price_at
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.environ.get("MC_DATA") or BASE  # config.json and state/; a volume in Docker
@@ -50,7 +51,7 @@ STREAM_SERVICES = {  # default ingest servers; the stream key is appended
     "facebook": "rtmps://live-api-s.facebook.com:443/rtmp",
     "custom": "",
 }
-PRINTER_KEYS = ("host", "serial", "access_code", "name", "locked_cmds", "dev_mode")
+PRINTER_KEYS = ("host", "serial", "access_code", "name", "locked_cmds", "dev_mode", "plug")
 ACTIVE = ("PREPARE", "RUNNING", "PAUSE")
 
 
@@ -235,6 +236,28 @@ def _hms_code(h):
 
 
 # ---------- camera plumbing (per printer) ----------
+
+def read_plug(host):
+    """Watts from a Shelly plug or relay on the LAN: Gen2+ RPC (Plus/Pro/Plug S Gen3) or Gen1 REST (Plug S)."""
+    def get(path):
+        with urllib.request.urlopen(f"http://{host}{path}", timeout=3) as r:
+            return json.loads(r.read())
+    try:
+        st = get("/rpc/Shelly.GetStatus")
+        for k, v in st.items():
+            if k.split(":")[0] in ("switch", "pm1", "em1") and isinstance(v, dict):
+                w = v.get("apower", v.get("act_power"))
+                if w is not None:
+                    return float(w)
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+    st = get("/status")  # Gen1
+    meters = st.get("meters") or st.get("emeters") or []
+    if meters and meters[0].get("is_valid", True):
+        return float(meters[0]["power"])
+    raise ValueError("no power meter")
+
 
 class Relay:
     """Loopback TCP relay to one printer's RTSPS port.
@@ -499,8 +522,9 @@ class Printer:
         self.camera = Camera(self)
         self.h264 = H264Camera(self)
         self.streamer = Streamer(self)
+        self.power = {"w": None, "t": 0.0, "last": 0.0}  # smart plug reading; "last" = previous counted reading
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"mission-{os.getpid()}-{conf['id']}")
-        for target in (self.mqtt_loop, self.sampler, self.broadcaster):
+        for target in (self.mqtt_loop, self.sampler, self.broadcaster, self.plug_loop):
             threading.Thread(target=target, daemon=True).start()
 
     @property
@@ -654,6 +678,7 @@ class Printer:
                     "prediction_s": meta.get("prediction"), "filaments": meta.get("filaments") or [],
                     "cost": self.live_costs(meta) if state in ACTIVE or state == "FINISH" else None,
                     "forecast": self.spool_forecast(meta) if state in ACTIVE else []},
+            "power": self.power_view(state),
             "hist": list(self.hist)[-240:],
             "events": list(self.events)[:40],
         }
@@ -679,12 +704,15 @@ class Printer:
         if state in ACTIVE and job.get("db_key") != key:
             jid = hist_db.open_job(serial, key)
             if jid:  # server restarted during this print: continue the same record
-                job["started_at"] = hist_db.get(jid)["started"]
+                rec = hist_db.get(jid)
+                job["started_at"] = rec["started"]
+                job.update(meas_kwh=rec.get("meas_kwh") or 0.0, meas_cost=rec.get("meas_cost"), meas_s=rec.get("meas_s") or 0.0)
             else:
                 seen_start = self.prev.get("seen_start") == key
                 started = job.get("started_at") if seen_start and job.get("started_at") else time.time() - self._elapsed_guess()
                 jid = hist_db.start(serial, key, p.get("subtask_name"), p.get("plate_idx"), started, not seen_start)
                 job["started_at"] = started
+                job.update(meas_kwh=0.0, meas_cost=None, meas_s=0.0)
             job.update(db_id=jid, db_key=key)
             self.remember_meta()
         elif state in ("FINISH", "FAILED", "IDLE") and job.get("db_id"):
@@ -732,8 +760,14 @@ class Printer:
         pct = 100 if result == "FINISH" else int(_num(self.raw.get("mc_percent"), 0) or 0)
         filaments = json.loads(rec["filaments"] or "[]")
         fil, kwh, cost_e = job_costs(cfg["costs"], filaments, pct / 100, rec["started"], ended)
+        if self.job.get("db_id") == jid:  # the last plug readings may not be flushed yet
+            rec.update({k: self.job.get(k) for k in ("meas_kwh", "meas_cost", "meas_s")})
+        m = measured_energy(cfg["costs"], rec, rec["started"], ended)
+        if m:
+            kwh, cost_e = m
         hist_db.update(jid, ended=ended, result=result, pct=pct, energy_kwh=kwh, cost_filament=fil,
-                       cost_energy=cost_e, currency=cfg["costs"].get("currency"))
+                       cost_energy=cost_e, currency=cfg["costs"].get("currency"), meas_kwh=rec.get("meas_kwh"),
+                       meas_cost=rec.get("meas_cost"), meas_s=rec.get("meas_s"))
         self.log("job", L(f"Записано в историю: {rec['task']}", f"Saved to history: {rec['task']}"))
 
         def grab():  # the final photo; ffmpeg can take a few seconds, so off the MQTT thread
@@ -752,6 +786,13 @@ class Printer:
             return None
         fil, kwh, cost_e = job_costs(cfg["costs"], meta.get("filaments") or [], 1.0,
                                      started, started + (meta.get("prediction") or 0))
+        job = self.job
+        if job.get("meas_s", 0) > 300:  # the plug has measured a while: measured so far + the rest at the measured average
+            now, rem = time.time(), (_num(self.raw.get("mc_remaining_time"), 0) or 0) * 60
+            avg_w = job["meas_kwh"] * 1000 * 3600 / job["meas_s"]
+            _, kwh_r, cost_r = job_costs({**cfg["costs"], "power_w": avg_w}, [], 1.0, now, now + rem)
+            kwh = round(job["meas_kwh"] + (kwh_r or 0), 3)
+            cost_e = None if job.get("meas_cost") is None else round(job["meas_cost"] + (cost_r or 0), 2)
         if fil is None and cost_e is None:
             return {"known": False, "currency": cfg["costs"].get("currency")}
         return {"known": True, "filament": fil, "energy": cost_e, "kwh": kwh,
@@ -995,15 +1036,58 @@ class Printer:
                     print("spool tracking failed:", e, flush=True)
                 v = self.build_view()
             t = v["temps"]
-            self.hist.append([round(time.time()), t["nozzle"]["cur"], t["bed"]["cur"], t["chamber"]["cur"], v["pct"]])
+            w = (v["power"] or {}).get("w")
+            self.hist.append([round(time.time()), t["nozzle"]["cur"], t["bed"]["cur"], t["chamber"]["cur"], v["pct"], w])
             if n % 6 == 0 and self.job.get("db_id") and v["state"] in ACTIVE:  # every 30 s into the print report
-                hist_db.add_sample(self.job["db_id"], time.time(), t["nozzle"]["cur"], t["bed"]["cur"],
-                                   t["chamber"]["cur"], v["pct"], v["layer"])
+                job = self.job
+                hist_db.add_sample(job["db_id"], time.time(), t["nozzle"]["cur"], t["bed"]["cur"],
+                                   t["chamber"]["cur"], v["pct"], v["layer"], w)
+                if job.get("meas_s"):
+                    hist_db.update(job["db_id"], meas_kwh=job["meas_kwh"], meas_cost=job.get("meas_cost"), meas_s=job["meas_s"])
             self.dirty.set()
             if n % 120 == 0 and self.mqtt_ok:
                 self.send({"pushing": {"command": "pushall"}})
             if v["task"] and self.job["fetched_for"] != self._fetch_key() and time.time() - self.job["fetch_err_at"] > 120:
                 threading.Thread(target=self.fetch_job, daemon=True).start()
+
+    def plug_loop(self):
+        """Reads the smart plug every 5 s and adds the energy of an active print to its record."""
+        fails = 0
+        while not self.stopped:
+            host = self.conf.get("plug")
+            if not host:
+                self.power.update(w=None, t=0.0, last=0.0)
+                time.sleep(5)
+                continue
+            try:
+                w = read_plug(host)
+                fails = 0
+            except Exception:  # noqa: BLE001 - plug offline or unplugged: show "no reading", keep trying
+                w, fails = None, fails + 1
+            now = time.time()
+            with self.lock:
+                job, last = self.job, self.power["last"]
+                if w is not None:
+                    self.power.update(w=round(w, 1), t=now)
+                    if job.get("db_id") and self.raw.get("gcode_state") in ACTIVE and last and now - last <= 20:
+                        dt = now - last
+                        kwh = w / 1000 * dt / 3600
+                        price = price_at(cfg["costs"], now)
+                        job["meas_kwh"] = job.get("meas_kwh", 0.0) + kwh
+                        job["meas_s"] = job.get("meas_s", 0.0) + dt
+                        if price is not None:
+                            job["meas_cost"] = (job.get("meas_cost") or 0.0) + kwh * price
+                    self.power["last"] = now
+                elif now - self.power["t"] > 30:
+                    self.power.update(w=None, last=0.0)
+            time.sleep(5 if fails < 3 else 30)
+
+    def power_view(self, state):
+        if not self.conf.get("plug"):
+            return None
+        job = self.job
+        return {"w": self.power["w"], "ok": self.power["w"] is not None,
+                "job_kwh": round(job.get("meas_kwh", 0.0), 3) if job.get("db_id") and state in ACTIVE and job.get("meas_s") else None}
 
     def broadcaster(self):
         last_push = 0.0
@@ -1108,13 +1192,15 @@ class Streamer:
     """Live broadcast of one printer's camera to RTMP services (YouTube, Twitch...), optionally with a HUD.
 
     One ffmpeg reads the camera through the relay and pushes to every selected service at once (tee
-    muxer, a failing service doesn't stop the others). It restarts itself while the broadcast is wanted.
+    muxer, a failing service doesn't stop the others). It restarts itself while the broadcast is wanted:
+    when ffmpeg exits, or when one of several services drops (the tee muxer would just leave it out).
     """
 
     def __init__(self, pr):
         self.pr = pr
         self.proc, self.want, self.targets, self.overlay = None, False, [], False
         self.since, self.error, self.fps, self.kbps = None, None, None, None
+        self.drops, self.dropped, self.slave_failed = 0, None, False  # reconnect bookkeeping
         self.hud_dir = os.path.join(DATA, "state", f"hud-{pr.id}")
         threading.Thread(target=self._watch, daemon=True).start()
 
@@ -1137,6 +1223,7 @@ class Streamer:
         self.targets, self.urls = list(names), urls
         self.overlay = bool(overlay and HAS_DRAWTEXT and HUD_FONT)
         self.want, self.error, self.since = True, None, time.time()
+        self.drops, self.dropped = 0, None
         self._spawn()
         self.pr.log("cmd", L(f"Трансляция запущена: {', '.join(names)}", f"Broadcast started: {', '.join(names)}"))
         return None
@@ -1216,6 +1303,8 @@ class Streamer:
         if self.overlay:
             self.write_hud()
         self.fps = self.kbps = None
+        self.slave_failed = False
+        self.spawned = time.time()
         self.proc = subprocess.Popen(self.command(self.urls), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, bufsize=0)
         threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
 
@@ -1232,6 +1321,9 @@ class Streamer:
                 # -progress writes key=value lines; anything else on stderr is an ffmpeg error message
                 if m := re.match(rb"^fps=([\d.]+)$", line):
                     self.fps = float(m.group(1)) or self.fps
+                    if self.fps and self.dropped and proc is self.proc:  # back on air after a drop
+                        self.dropped, self.error = None, None
+                        self.pr.log("cmd", L("Трансляция восстановлена", "Broadcast reconnected"))
                 elif m := re.match(rb"^bitrate=\s*([\d.]+)kbits", line):
                     self.kbps = float(m.group(1))
                 elif m := re.match(rb"^total_size=(\d+)$", line):
@@ -1240,6 +1332,8 @@ class Streamer:
                     self.kbps = round(size * 8 / (int(m.group(1)) / 1e6) / 1000)
                 elif line and b"=" not in line[:20] and self.want:
                     self.error = line.decode("utf-8", "replace")[-200:]
+                    if b"tee" in line and (b"Terminating" in line or b"failed" in line.lower()):
+                        self.slave_failed = True  # one service closed the connection
             self.pr.dirty.set()
 
     def _watch(self):
@@ -1252,8 +1346,24 @@ class Streamer:
                     self.write_hud()
                 except Exception:  # noqa: BLE001 - a missed HUD update is harmless
                     pass
-            if self.proc is None or self.proc.poll() is not None:
-                time.sleep(3)  # back off, then reconnect (network blip, service hiccup)
+            proc = self.proc
+            if proc is not None and proc.poll() is None and self.fps and time.time() - self.spawned > 120:
+                self.drops = 0  # two stable minutes: the next drop retries quickly again
+            if proc is not None and proc.poll() is None and self.slave_failed and len(self.urls) > 1:
+                proc.terminate()  # a dropped service is only retried by restarting ffmpeg; the others pause a few seconds
+                try:
+                    proc.wait(5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            if proc is None or proc.poll() is not None:
+                if self.want and not self.dropped:
+                    self.dropped = time.time()
+                    why = self.error or L("ffmpeg завершился", "ffmpeg exited")
+                    self.pr.log("error", L(f"Трансляция оборвалась ({why}), переподключаюсь",
+                                           f"Broadcast dropped ({why}), reconnecting"))
+                # network blip or service hiccup: retry after 3 s, slower if it keeps failing
+                time.sleep((3, 10, 30, 60)[min(self.drops, 3)])
+                self.drops += 1
                 if self.want:
                     self._spawn()
         self.stop()
@@ -1778,7 +1888,7 @@ class Handler(BaseHTTPRequestHandler):
                 "stream": {"overlay": cfg["stream"]["overlay"], "overlay_supported": bool(HAS_DRAWTEXT and HUD_FONT),
                            "targets": {k: {"server": v["server"], "has_key": bool(v["key"])} for k, v in cfg["stream"]["targets"].items()}},
                 "printers": [{"id": p["id"], "name": p["name"], "host": p.get("host"), "serial": p.get("serial"),
-                              "has_code": bool(p.get("access_code")), "dev_mode": bool(p.get("dev_mode")),
+                              "has_code": bool(p.get("access_code")), "dev_mode": bool(p.get("dev_mode")), "plug": p.get("plug") or "",
                               "configured": printers[p["id"]].configured()}
                              for p in cfg["printers"] if p["id"] in printers]})
         if path == "/api/backups":
@@ -1980,7 +2090,10 @@ class Handler(BaseHTTPRequestHandler):
             if any(p.get("serial") == serial and p is not conf for p in cfg["printers"]):
                 return self._json(400, {"ok": False, "error": "duplicate"})
             name = (str(a.get("name") or "").strip() or "Bambu")[:40]
-            fields = {"host": host, "serial": serial, "access_code": code, "name": name, "dev_mode": bool(a.get("dev_mode"))}
+            plug = str(a.get("plug") or "").strip()
+            if plug and not re.match(r"^[A-Za-z0-9.-]{1,253}$", plug):
+                return self._json(400, {"ok": False, "error": "plug"})
+            fields = {"host": host, "serial": serial, "access_code": code, "name": name, "dev_mode": bool(a.get("dev_mode")), "plug": plug}
             with cfg_lock:
                 if conf is None:  # a new printer
                     used = {p["id"] for p in cfg["printers"]}

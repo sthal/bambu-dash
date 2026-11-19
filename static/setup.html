@@ -196,6 +196,11 @@ label.btn { text-transform: none; letter-spacing: 0; font: 700 14px var(--sans);
           <div class="hint" data-i18n="nameHint">Как подписать принтер на дашборде</div>
         </div>
         <div class="field">
+          <label for="plug" data-i18n="plug">Розетка Shelly (IP)</label>
+          <input id="plug" name="plug" placeholder="192.168.1.60" inputmode="decimal" spellcheck="false">
+          <div class="hint" data-i18n="plugHint">Необязательно. Реальное потребление вместо оценки: ватты на дашборде, кВт·ч и стоимость каждой печати</div>
+        </div>
+        <div class="field">
           <label for="port" data-i18n="port">Порт дашборда</label>
           <input id="port" name="port" type="number" min="1024" max="65535" placeholder="8790">
           <div class="hint" data-i18n="portHint">Смена порта применится после перезапуска</div>
@@ -272,7 +277,8 @@ const I18N = {
     s2: "Данные подключения", s3: "Подсказки", s2lead: "Access Code хранится только на этом компьютере, в config.json. Наружу сервер его не отдаёт.",
     host: "IP-адрес", hostHint: "Экран принтера → Настройки → Сеть", codeHint: "Там же, рядом с режимом «LAN Only»",
     codeSaved: "Сохранён. Оставьте пустым, чтобы не менять", serial: "Серийный номер", serialHint: "Можно не заполнять: определится автоматически",
-    name: "Название", nameHint: "Как подписать принтер на дашборде", port: "Порт дашборда", portHint: "Смена порта применится после перезапуска",
+    name: "Название", nameHint: "Как подписать принтер на дашборде",
+    plug: "Розетка Shelly (IP)", plugHint: "Необязательно. Реальное потребление вместо оценки: ватты на дашборде, кВт·ч и стоимость каждой печати", e_plug: "Проверьте IP-адрес розетки", port: "Порт дашборда", portHint: "Смена порта применится после перезапуска",
     test: "Проверить связь", testing: "Проверяю…", save: "Сохранить и подключить", saving: "Сохраняю…",
     stReach: "Принтер Bambu Lab отвечает", stAuth: "Проверка Access Code", stStatus: "Получение статуса",
     savedOk: "Сохранено. Открываю дашборд…", savedRestart: "Сохранено. Новый порт заработает после перезапуска сервера.",
@@ -318,7 +324,8 @@ const I18N = {
     s2: "Connection details", s3: "Tips", s2lead: "The Access Code is stored only on this computer, in config.json. The server never sends it back out.",
     host: "IP address", hostHint: "Printer screen → Settings → Network", codeHint: "Same screen, next to “LAN Only” mode",
     codeSaved: "Saved. Leave empty to keep it", serial: "Serial number", serialHint: "Optional: detected automatically",
-    name: "Name", nameHint: "Label shown on the dashboard", port: "Dashboard port", portHint: "A new port takes effect after a restart",
+    name: "Name", nameHint: "Label shown on the dashboard",
+    plug: "Shelly plug (IP)", plugHint: "Optional. Real consumption instead of an estimate: watts on the dashboard, kWh and cost of every print", e_plug: "Check the plug's IP address", port: "Dashboard port", portHint: "A new port takes effect after a restart",
     test: "Test connection", testing: "Testing…", save: "Save and connect", saving: "Saving…",
     stReach: "Bambu Lab printer responds", stAuth: "Access Code check", stStatus: "Status from printer",
     savedOk: "Saved. Opening the dashboard…", savedRestart: "Saved. The new port takes effect after restarting the server.",
@@ -414,7 +421,7 @@ $("scan").onclick = async () => {
 
 function formData() {
   return { p: currentP, dev_mode: $("devmode").checked, host: $("host").value.trim(), access_code: $("code").value.trim(), serial: $("serial").value.trim().toUpperCase(),
-           name: $("name").value.trim(), port: $("port").value.trim(),
+           name: $("name").value.trim(), plug: $("plug").value.trim(), port: $("port").value.trim(),
            new_password: $("pw").value, remove_password: $("pw-remove").checked, costs: costsData(), stream: streamData() };
 }
 const MATERIALS = ["PLA", "PETG", "ABS", "ASA", "TPU", "PA", "PC", "PVA"];
@@ -451,8 +458,8 @@ function fillCosts(c) {
   Object.entries(c.filament || {}).forEach(([k, v]) => { const i = document.querySelector(`[data-mat="${k}"]`); if (i) i.value = v; });
 }
 function markBad(err) {
-  ["host", "code", "serial", "port", "pw"].forEach((f) => $(f).classList.remove("bad"));
-  const map = { host: "host", code: "code", code_required: "code", serial: "serial", port: "port", password: "pw" };
+  ["host", "code", "serial", "port", "pw", "plug"].forEach((f) => $(f).classList.remove("bad"));
+  const map = { host: "host", code: "code", code_required: "code", serial: "serial", port: "port", password: "pw", plug: "plug" };
   if (map[err]) $(map[err]).classList.add("bad");
 }
 function renderSteps(r) {
@@ -511,7 +518,7 @@ function selectPrinter(id, quiet) {
   const c = curConf();
   $("host").value = c ? c.host || "" : ""; $("serial").value = c ? c.serial || "" : "";
   $("name").value = c && c.name !== "Bambu" ? c.name : ""; $("code").value = "";
-  $("devmode").checked = !!(c && c.dev_mode);
+  $("devmode").checked = !!(c && c.dev_mode); $("plug").value = c ? c.plug || "" : "";
   $("steps").hidden = true; showMsg("", "");
   applyLang();
   if (!quiet) $("form").scrollIntoView({ behavior: "smooth", block: "start" });
