@@ -37,7 +37,7 @@ unzip -oq "$C/ffmpeg-arm64.zip" -d "$B/ff-arm64" && mv "$B/ff-arm64/ffmpeg" "$R/
 unzip -oq "$C/ffmpeg-amd64.zip" -d "$B/ff-amd64" && mv "$B/ff-amd64/ffmpeg" "$R/ffmpeg-x86_64" && rm -rf "$B/ff-amd64"
 
 # the server itself, without secrets or local state
-cp $ROOT/server.py $ROOT/history.py $ROOT/toolpath.py "$R/app/"
+cp $ROOT/server.py $ROOT/history.py $ROOT/toolpath.py $ROOT/hudgfx.py "$R/app/"
 cp -R $ROOT/static $ROOT/data "$R/app/"
 "$R/python-arm64/bin/python3" -m pip install -q --disable-pip-version-check --no-compile --target "$R/app/vendor" -r $ROOT/requirements.txt
 

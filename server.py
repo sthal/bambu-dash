@@ -37,6 +37,7 @@ from urllib.parse import parse_qs
 
 import paho.mqtt.client as mqtt
 
+import hudgfx
 import toolpath
 from history import DEFAULT_COSTS, History, job_costs, measured_energy, price_at
 
@@ -1201,6 +1202,7 @@ class Streamer:
         self.proc, self.want, self.targets, self.overlay = None, False, [], False
         self.since, self.error, self.fps, self.kbps = None, None, None, None
         self.drops, self.dropped, self.slave_failed = 0, None, False  # reconnect bookkeeping
+        self.panel, self.panel_key = None, None  # HUD gauge panel (hudgfx) and the values it was drawn for
         self.hud_dir = os.path.join(DATA, "state", f"hud-{pr.id}")
         threading.Thread(target=self._watch, daemon=True).start()
 
@@ -1247,15 +1249,29 @@ class Streamer:
         args = [FFMPEG, *FF_IN, "-i", self.pr.rtsp_url(),
                 "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]  # YouTube wants an audio track
         if self.overlay:
+            # the gauge panel: a PNG that write_hud() replaces, re-read by image2 twice a second
+            args += ["-re", "-f", "image2", "-loop", "1", "-framerate", "2", "-i", os.path.join(self.hud_dir, "gauges.png")]
             d, font = self.hud_dir, HUD_FONT.replace(":", "\\\\:")
             def txt(name, x, y, size, color, extra=""):
                 return (f"drawtext=fontfile='{font}':textfile='{os.path.join(d, name)}':reload=1:x={x}:y={y}:"
                         f"fontsize={size}:fontcolor={color}:shadowcolor=black@0.7:shadowx=2:shadowy=2:expansion=none{extra}")
-            chain = ",".join([
+            def label(text, x, y, size, color):
+                return (f"drawtext=fontfile='{font}':text='{text}':x={x}:y={y}:fontsize={size}:fontcolor={color}:"
+                        "shadowcolor=black@0.6:shadowx=1:shadowy=1")
+            n = len(self._gauges())
+            px = f"w-{hudgfx.Panel.width(n) + 30}"  # the panel sits 30 px from the top-right corner
+            texts = []
+            for g, ((lx, ly), (vx, vy), (sx, sy)) in enumerate(hudgfx.text_layout(n)):
+                texts += [label(self._gauges()[g], f"{px}+{lx}", 30 + ly, 15, "0x9aa3c7"),
+                          txt(f"g{g}v.txt", f"{px}+{vx}-tw/2", 30 + vy, 30, "white"),
+                          txt(f"g{g}s.txt", f"{px}+{sx}-tw/2", 30 + sy, 13, "0x9aa3c7")]
+            pre = ",".join([
                 "drawbox=x=0:y=ih-230:w=iw:h=230:color=0x03040c@0.55:t=fill",
                 f"drawtext=fontfile='{font}':text='●':x=40:y=34:fontsize=30:fontcolor=0xff4d6a:shadowcolor=0xff4d6a@0.6:shadowx=0:shadowy=0",
                 txt("tag.txt", 78, 34, 30, "white"),
-                txt("temps.txt", "w-tw-40", 34, 28, "0xc9d0f0"),
+            ])
+            chain = ",".join([
+                *texts,
                 txt("pct.txt", 40, "h-180", 120, "white"),
                 txt("task.txt", 330, "h-165", 44, "white"),
                 txt("line.txt", 330, "h-105", 32, "0x48e0ff"),
@@ -1264,13 +1280,17 @@ class Streamer:
             ])
             enc = (["-c:v", "h264_videotoolbox", "-b:v", "5000k", "-maxrate", "6000k", "-bufsize", "10000k"]
                    if sys.platform == "darwin" else ["-c:v", "libx264", "-preset", "veryfast", "-b:v", "4500k", "-maxrate", "5000k", "-bufsize", "9000k"])
-            args += ["-filter_complex", f"[0:v]{chain}[v]", "-map", "[v]", "-map", "1:a", *enc,
+            graph = f"[0:v]{pre}[b];[2:v]format=rgba[g];[b][g]overlay=x=W-w-30:y=30:eof_action=repeat,{chain}[v]"
+            args += ["-filter_complex", graph, "-map", "[v]", "-map", "1:a", *enc,
                      "-r", "30", "-g", "60", "-pix_fmt", "yuv420p"]
         else:
             args += ["-map", "0:v", "-map", "1:a", "-c:v", "copy"]  # the camera already sends a keyframe every second
         args += ["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-progress", "pipe:2", "-nostats",
                  "-f", "tee", "|".join(f"[f=flv:onfail=ignore]{u}" for u in out)]
         return args
+
+    def _gauges(self):
+        return ["NOZZLE", "BED", "CHAMBER"] + (["POWER"] if self.pr.conf.get("plug") else [])
 
     def write_hud(self):
         """Text files the drawtext filters re-read every frame; replaced atomically."""
@@ -1285,14 +1305,36 @@ class Streamer:
         filled = round(n * v["pct"] / 100)
         tt = v["temps"]
         f = lambda x: "—" if x is None else f"{x:.0f}°"
-        files = {
-            "tag.txt": f"LIVE · {v['name']} · MISSION CONTROL",
-            "temps.txt": f"NOZZLE {f(tt['nozzle']['cur'])}   BED {f(tt['bed']['cur'])}   CHAMBER {f(tt['chamber']['cur'])}",
+        files = {"tag.txt": f"LIVE · {v['name']} · MISSION CONTROL"}
+        gauges = []
+        for g, key in enumerate(self._gauges()):
+            if key == "POWER":
+                pw = v["power"] or {}
+                w = pw.get("w")
+                files[f"g{g}v.txt"] = "—" if w is None else f"{w:.0f} W"
+                files[f"g{g}s.txt"] = f"{pw['job_kwh']:.2f} kWh" if pw.get("job_kwh") is not None else "SHELLY"
+                gauges.append((None if w is None else w / 1300, None))
+                continue
+            k, top = {"NOZZLE": ("nozzle", 320), "BED": ("bed", 120), "CHAMBER": ("chamber", 65)}[key]
+            cur, tgt = tt[k]["cur"], tt[k]["tgt"]
+            files[f"g{g}v.txt"] = f(cur)
+            files[f"g{g}s.txt"] = f"TARGET {f(tgt) if tgt else '—'}"
+            gauges.append((None if cur is None else cur / top, tgt / top if tgt else None))
+        key = [(round(a or 0, 3), b and round(b, 3)) for a, b in gauges]
+        if key != self.panel_key or not os.path.exists(os.path.join(self.hud_dir, "gauges.png")):
+            if not self.panel or self.panel.n != len(gauges):
+                self.panel = hudgfx.Panel(len(gauges))
+            tmp = os.path.join(self.hud_dir, "gauges.png.tmp")
+            with open(tmp, "wb") as fh:
+                fh.write(self.panel.render(gauges))
+            os.replace(tmp, os.path.join(self.hud_dir, "gauges.png"))
+            self.panel_key = key
+        files.update({
             "pct.txt": f"{v['pct']}%",
             "task.txt": v["task"] or v["name"],
             "line.txt": f"{stage}{layer}{eta}",
             "bar.txt": "━" * filled + "─" * (n - filled),
-        }
+        })
         for name, text in files.items():
             tmp = os.path.join(self.hud_dir, name + ".tmp")
             with open(tmp, "w", encoding="utf-8") as fh:
